@@ -1,0 +1,14 @@
+{
+  "sample": {
+    "glm": {
+      "glm__alpha": 3
+    },
+    "gbm": {
+      "gbm__min_samples_leaf": 20,
+      "gbm__max_leaf_nodes": 63,
+      "gbm__max_iter": 500,
+      "gbm__learning_rate": 0.1,
+      "gbm__l2_regularization": 0.0
+    }
+  }
+}
