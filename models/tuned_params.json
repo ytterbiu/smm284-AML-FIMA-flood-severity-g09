@@ -1,19 +1,7 @@
 {
-  "sample": {
-    "glm": {
-      "glm__alpha": 3
-    },
-    "gbm": {
-      "gbm__min_samples_leaf": 20,
-      "gbm__max_leaf_nodes": 63,
-      "gbm__max_iter": 500,
-      "gbm__learning_rate": 0.1,
-      "gbm__l2_regularization": 0.0
-    }
-  },
   "sample_oot": {
-    "tuned_at": "2026-07-03T17:10:49+00:00",
-    "n_train": 19971,
+    "tuned_at": "2026-07-04T23:31:29+00:00",
+    "n_train": 20088,
     "cutoff_year": 2020,
     "scoring": "neg_mean_absolute_error",
     "cv": "5-fold year-grouped (no fold contains its own year)",
@@ -22,7 +10,7 @@
       "best_params": {
         "glm__alpha": 0.03
       },
-      "best_cv_mae": 43829.27340502318,
+      "best_cv_mae": 43761.10969250239,
       "n_candidates": 9,
       "full_estimator_params": {
         "alpha": 0.03,
@@ -38,27 +26,27 @@
     },
     "gbm": {
       "best_params": {
-        "gbm__min_samples_leaf": 5,
+        "gbm__min_samples_leaf": 10,
         "gbm__max_leaf_nodes": 63,
-        "gbm__max_iter": 1200,
+        "gbm__max_iter": 500,
         "gbm__learning_rate": 0.15,
-        "gbm__l2_regularization": 10.0
+        "gbm__l2_regularization": 1.0
       },
-      "best_cv_mae": 40683.596183205496,
+      "best_cv_mae": 40377.218496215544,
       "n_candidates": 25,
       "full_estimator_params": {
         "categorical_features": "from_dtype",
         "early_stopping": "auto",
         "interaction_cst": null,
-        "l2_regularization": 10.0,
+        "l2_regularization": 1.0,
         "learning_rate": 0.15,
         "loss": "gamma",
         "max_bins": 255,
         "max_depth": null,
         "max_features": 1.0,
-        "max_iter": 1200,
+        "max_iter": 500,
         "max_leaf_nodes": 63,
-        "min_samples_leaf": 5,
+        "min_samples_leaf": 10,
         "monotonic_cst": null,
         "n_iter_no_change": 10,
         "quantile": null,
@@ -72,7 +60,7 @@
     }
   },
   "full_oot": {
-    "tuned_at": "2026-07-03T23:56:49+00:00",
+    "tuned_at": "2026-07-05T02:25:49+00:00",
     "n_train": 1791249,
     "cutoff_year": 2020,
     "scoring": "neg_mean_absolute_error",
@@ -82,7 +70,7 @@
       "best_params": {
         "glm__alpha": 0.03
       },
-      "best_cv_mae": 44216.1127122856,
+      "best_cv_mae": 44133.3281643454,
       "n_candidates": 9,
       "full_estimator_params": {
         "alpha": 0.03,
@@ -99,25 +87,25 @@
     "gbm": {
       "best_params": {
         "gbm__min_samples_leaf": 20,
-        "gbm__max_leaf_nodes": 127,
-        "gbm__max_iter": 500,
-        "gbm__learning_rate": 0.05,
+        "gbm__max_leaf_nodes": 63,
+        "gbm__max_iter": 1200,
+        "gbm__learning_rate": 0.2,
         "gbm__l2_regularization": 0.1
       },
-      "best_cv_mae": 39954.0943038917,
+      "best_cv_mae": 39924.533131272416,
       "n_candidates": 25,
       "full_estimator_params": {
         "categorical_features": "from_dtype",
         "early_stopping": "auto",
         "interaction_cst": null,
         "l2_regularization": 0.1,
-        "learning_rate": 0.05,
+        "learning_rate": 0.2,
         "loss": "gamma",
         "max_bins": 255,
         "max_depth": null,
         "max_features": 1.0,
-        "max_iter": 500,
-        "max_leaf_nodes": 127,
+        "max_iter": 1200,
+        "max_leaf_nodes": 63,
         "min_samples_leaf": 20,
         "monotonic_cst": null,
         "n_iter_no_change": 10,
