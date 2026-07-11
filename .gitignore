@@ -6,6 +6,15 @@ data/processed/*
 outputs/*
 .ipynb_checkpoints/
 
+# BE personal notes and resources (that I don't wish to track with Git)
+BE-resources/
+# Temporary working files or drafts or new models
+tmp-files*/
+
+# docs contains draft content for dashboard
+# added here just whilst it's under development
+docs/
+
 .DS_Store
 
 *.pdf
