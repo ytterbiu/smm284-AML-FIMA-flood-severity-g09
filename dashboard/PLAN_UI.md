@@ -105,7 +105,7 @@ list from `BE_notes.ipynb` §7) — not a reason to widen Page 1's load.
 ```
 Title: "How much does flood insurance pay out in the USA?"
 ----------------------------------------------------------------
-Control row: F_Year (dropdown, default = All) | F_Stat (Median/Mean toggle)
+Control row: F_Year (range slider, default = full extent) | F_Stat (Median/Mean toggle)
              | I_Payout (KPI card) | I_Freq (KPI card)
              | active-filter chips | Reset button
 ----------------------------------------------------------------
@@ -118,23 +118,39 @@ C3: row of 6 zone_family boxplots, shared y-axis, reference stat line
 **Filter state** — one `dcc.Store(id="filter-state")`, mirroring the
 reference app's pattern:
 ```json
-{"year": null, "stat": "median", "state": null, "zone_family": null}
+{"year_range": [1978, 2026], "stat": "median", "state": null, "zone_family": null}
 ```
+`year_range` was originally a single nullable year (`int | None`); changed
+to an always-present `[lo, hi]` pair after teammate feedback asked for a
+range (e.g. 2000–2020 inclusive), with a single year expressed as `[2000,
+2000]`. This is a genuine simplification, not just an added feature: a
+full-extent range (`[YEAR_MIN, YEAR_MAX]`, from `data.get_year_bounds()`)
+is *functionally* a no-op filter, so "no year filter" no longer needs a
+separate `None` case the way `state`/`zone_family` still do — `year_range`
+is always applied via `pl.col("yearOfLoss").is_between(lo, hi)` (inclusive
+both ends, Polars' default). UI: `dcc.RangeSlider` (sparse marks every 5
+years — every-year marks would be unreadable across the ~49-year span —
+plus an always-visible tooltip so exact dragged values are legible).
+`stat` defaults to `"median"` (not null) since C1/C3/KPIs always need an
+aggregation choice; `state`/`zone_family` still default to `null`
+("no filter").
 
 **Active-filter chips** (added after initial user testing — it wasn't
 otherwise obvious which data subset the charts reflected): a read-only-by-
-default badge row rendered from `filter-state` showing `year`/`state`/
-`zone_family` (not `stat` — already visible via the highlighted toggle
-button, would be redundant here). Each chip is *also* independently
-clickable to clear just that one filter — implemented as a second callback
-writing to `filter-state` via Dash's pattern-matching `Input({"type":
-"filter-chip", "key": ALL}, "n_clicks")`, using `allow_duplicate=True` on
-both callbacks that write to `filter-state`. This is in addition to, not a
-replacement for, each filter's existing removal path (dropdown's ✕,
-clicking the same map state/zone box again) and Reset (clears all four
-fields at once).
-`stat` defaults to `"median"` (not null) since C1/C3/KPIs always need an
-aggregation choice; the other three default to "no filter."
+default badge row rendered from `filter-state` showing `year_range` (only
+when it's narrower than the full extent — labelled `"Year: 2000"` when
+`lo == hi`, `"Year: 2000–2020"` otherwise), `state`, and `zone_family` (not
+`stat` — already visible via the highlighted toggle button, would be
+redundant here). Each chip is *also* independently clickable to clear just
+that one filter — implemented as a second callback writing to
+`filter-state` via Dash's pattern-matching `Input({"type": "filter-chip",
+"key": ALL}, "n_clicks")`, using `allow_duplicate=True` on both callbacks
+that write to `filter-state`. Clicking the year chip resets it to the full
+`[YEAR_MIN, YEAR_MAX]` extent, not `None` (year_range is never null,
+unlike `state`/`zone_family`, which do reset to `None`). This is in
+addition to, not a replacement for, each filter's existing removal path
+(dragging the slider back out, clicking the same map state/zone box again)
+and Reset (clears all four fields at once).
 
 **The "never filter yourself" rule** (same principle the reference app uses
 for state/metal): each chart is filtered by every *other* active filter,
@@ -142,10 +158,10 @@ never by the one it produces — it only highlights/dims its own selection.
 
 | Chart | Filtered by | Not filtered by (dim/highlight only) |
 |---|---|---|
-| C1 choropleth | `year`, `zone_family` | `state` — map always shows all states; the selected one gets a highlight overlay (like the reference app's orange-border trace) |
-| C2 histogram | `year`, `state`, `zone_family` | — (C2 has no filter of its own) |
-| C3 boxplots | `year`, `state` | `zone_family` — all 6 boxes always shown; selected one full-opacity, others dimmed |
-| I_Payout / I_Freq | `year`, `state`, `zone_family` | — |
+| C1 choropleth | `year_range`, `zone_family` | `state` — map always shows all states; the selected one gets a highlight overlay (like the reference app's orange-border trace) |
+| C2 histogram | `year_range`, `state`, `zone_family` | — (C2 has no filter of its own) |
+| C3 boxplots | `year_range`, `state` | `zone_family` — all 6 boxes always shown; selected one full-opacity, others dimmed |
+| I_Payout / I_Freq | `year_range`, `state`, `zone_family` | — |
 
 Clicking an already-selected state/zone again clears that filter (toggle
 behaviour, per spec). **Reset clears all four fields back to defaults,
@@ -153,12 +169,12 @@ including `stat` → `"median"`** (confirmed).
 
 **Callback topology**
 ```
-year-dropdown ──┐
-stat-btn      ──┤
-map-click     ──┼──► filter-state (Store) ──► C1 choropleth
-zone-click*   ──┤                        ──► C2 histogram
-reset-btn     ──┘                        ──► C3 boxplots
-                                          ──► KPI row (I_Payout, I_Freq)
+year-range-slider ──┐
+stat-btn          ──┤
+map-click         ──┼──► filter-state (Store) ──► C1 choropleth
+zone-click*       ──┤                        ──► C2 histogram
+reset-btn         ──┘                        ──► C3 boxplots
+filter-chip-click*┘                          ──► KPI row (I_Payout, I_Freq)
 
 c2-scale-toggle (raw/log) ──► C2 histogram directly
   (view-only, not a data filter — kept out of filter-state so toggling it

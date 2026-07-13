@@ -19,7 +19,7 @@ import dash_bootstrap_components as dbc
 import plotly.graph_objects as go
 import polars as pl
 
-from data import get_df, apply_filters, get_stat_range, TARGET
+from data import get_df, apply_filters, get_stat_range, get_year_bounds, TARGET
 from charts.choropleth import build_choropleth
 from charts.histogram import build_histogram
 from charts.boxplots import build_zone_boxplots
@@ -28,15 +28,19 @@ dash.register_page(__name__, path="/", name="Flood Payout Overview")
 
 # ── Filter default ──────────────────────────────────────────────────────────
 
-DEFAULT_FILTER: dict = {"year": None, "stat": "median", "state": None, "zone_family": None}
+YEAR_MIN, YEAR_MAX = get_year_bounds()
 
-# ── Year dropdown options (real data, computed once — not a callback) ──────
+DEFAULT_FILTER: dict = {
+    "year_range": [YEAR_MIN, YEAR_MAX],
+    "stat": "median",
+    "state": None,
+    "zone_family": None,
+}
 
-_df = get_df()
-YEAR_OPTIONS = [
-    {"label": str(y), "value": int(y)}
-    for y in sorted(_df["yearOfLoss"].unique().to_list())
-]
+# Only label the two ends — marks at every 5 years overlapped and were
+# unreadable across the ~49-year span. The always-visible tooltip already
+# shows the exact currently-selected years while dragging.
+YEAR_MARKS = {YEAR_MIN: str(YEAR_MIN), YEAR_MAX: str(YEAR_MAX)}
 
 
 def _placeholder_figure(title: str) -> go.Figure:
@@ -76,13 +80,18 @@ layout = dbc.Container(
                     html.Div(
                         [
                             html.Span("Year", className="me-2 fw-semibold"),
-                            dcc.Dropdown(
-                                id="year-dropdown",
-                                options=YEAR_OPTIONS,
-                                value=None,
-                                placeholder="All years",
-                                clearable=True,
-                                style={"minWidth": "140px"},
+                            html.Div(
+                                dcc.RangeSlider(
+                                    id="year-range-slider",
+                                    min=YEAR_MIN,
+                                    max=YEAR_MAX,
+                                    step=1,
+                                    value=[YEAR_MIN, YEAR_MAX],
+                                    marks=YEAR_MARKS,
+                                    tooltip={"placement": "bottom", "always_visible": True},
+                                    allowCross=False,
+                                ),
+                                style={"minWidth": "320px"},
                             ),
                         ],
                         className="d-flex align-items-center",
@@ -208,7 +217,7 @@ layout = dbc.Container(
 
 @callback(
     Output("filter-state", "data", allow_duplicate=True),
-    Input("year-dropdown", "value"),
+    Input("year-range-slider", "value"),
     Input("stat-btn-median", "n_clicks"),
     Input("stat-btn-mean", "n_clicks"),
     Input("choropleth-map", "clickData"),
@@ -218,7 +227,7 @@ layout = dbc.Container(
     prevent_initial_call=True,
 )
 def update_filter_state(
-    year_value, _med_clicks, _mean_clicks, map_click, zone_click, _reset_clicks, current
+    year_range_value, _med_clicks, _mean_clicks, map_click, zone_click, _reset_clicks, current
 ):
     triggered = ctx.triggered_id
     state = dict(current)
@@ -226,8 +235,8 @@ def update_filter_state(
     if triggered == "btn-reset":
         return dict(DEFAULT_FILTER)
 
-    if triggered == "year-dropdown":
-        state["year"] = year_value
+    if triggered == "year-range-slider":
+        state["year_range"] = year_range_value
     elif triggered == "stat-btn-median":
         state["stat"] = "median"
     elif triggered == "stat-btn-mean":
@@ -242,6 +251,21 @@ def update_filter_state(
             state["zone_family"] = None if state.get("zone_family") == clicked else clicked
 
     return state
+
+
+@callback(
+    Output("year-range-slider", "value"),
+    Input("filter-state", "data"),
+)
+def sync_year_range_slider(filter_state):
+    # The slider's own `value` only reflects user drags by default — nothing
+    # else writes it back, so resetting year_range via the chip or Reset
+    # button (which both update filter-state directly) would otherwise leave
+    # the slider's handles visually stuck at their last dragged position.
+    # Same pattern as update_stat_buttons below: driven by filter-state even
+    # though this same component is also an Input to it; safe from feedback
+    # loops since Dash won't re-fire on an unchanged value.
+    return filter_state["year_range"]
 
 
 @callback(
@@ -263,7 +287,7 @@ def update_stat_buttons(filter_state):
 )
 def update_choropleth(filter_state):
     df = get_df()
-    df = apply_filters(df, year=filter_state["year"], zone_family=filter_state.get("zone_family"))
+    df = apply_filters(df, year_range=filter_state["year_range"], zone_family=filter_state.get("zone_family"))
     zmin, zmax = get_stat_range(filter_state["stat"])
     return build_choropleth(
         df,
@@ -306,7 +330,7 @@ def update_histogram(filter_state, scale):
     df = get_df()
     df = apply_filters(
         df,
-        year=filter_state["year"],
+        year_range=filter_state["year_range"],
         state=filter_state.get("state"),
         zone_family=filter_state.get("zone_family"),
     )
@@ -319,7 +343,7 @@ def update_histogram(filter_state, scale):
 )
 def update_boxplots(filter_state):
     df = get_df()
-    df = apply_filters(df, year=filter_state["year"], state=filter_state.get("state"))
+    df = apply_filters(df, year_range=filter_state["year_range"], state=filter_state.get("state"))
     return build_zone_boxplots(df, stat=filter_state["stat"], selected_zone=filter_state.get("zone_family"))
 
 
@@ -333,7 +357,7 @@ def update_kpis(filter_state):
     df = get_df()
     df = apply_filters(
         df,
-        year=filter_state["year"],
+        year_range=filter_state["year_range"],
         state=filter_state.get("state"),
         zone_family=filter_state.get("zone_family"),
     )
@@ -348,8 +372,17 @@ def update_kpis(filter_state):
     return label, f"${payout:,.0f}", f"{df.height:,}"
 
 
-# Labels for the active-filter chips, keyed by the filter-state field they represent.
-_CHIP_LABELS = {"year": "Year", "state": "State", "zone_family": "Zone"}
+# Labels for the active-filter chips that are simple None-means-unset
+# fields. year_range is handled separately below since it's never None —
+# its "unset" state is the full [YEAR_MIN, YEAR_MAX] range instead.
+_CHIP_LABELS = {"state": "State", "zone_family": "Zone"}
+
+
+def _year_range_label(year_range: list[int]) -> str | None:
+    lo, hi = year_range
+    if [lo, hi] == [YEAR_MIN, YEAR_MAX]:
+        return None
+    return f"Year: {lo}" if lo == hi else f"Year: {lo}–{hi}"
 
 
 @callback(
@@ -357,23 +390,36 @@ _CHIP_LABELS = {"year": "Year", "state": "State", "zone_family": "Zone"}
     Input("filter-state", "data"),
 )
 def update_active_filters_display(filter_state):
-    active = [(key, label) for key, label in _CHIP_LABELS.items() if filter_state.get(key) is not None]
-
-    if not active:
-        return [html.Span("No filters active", className="text-muted small")]
-
     chips = [html.Span("Filters:", className="me-1 small text-muted")]
-    for key, label in active:
+
+    year_label = _year_range_label(filter_state["year_range"])
+    if year_label is not None:
         chips.append(
             html.Span(
-                f"{label}: {filter_state[key]} ×",
-                id={"type": "filter-chip", "key": key},
+                f"{year_label} ×",
+                id={"type": "filter-chip", "key": "year_range"},
                 n_clicks=0,
                 className="badge bg-primary me-1",
                 title="Click to remove this filter",
                 style={"cursor": "pointer"},
             )
         )
+
+    for key, label in _CHIP_LABELS.items():
+        if filter_state.get(key) is not None:
+            chips.append(
+                html.Span(
+                    f"{label}: {filter_state[key]} ×",
+                    id={"type": "filter-chip", "key": key},
+                    n_clicks=0,
+                    className="badge bg-primary me-1",
+                    title="Click to remove this filter",
+                    style={"cursor": "pointer"},
+                )
+            )
+
+    if len(chips) == 1:  # only the "Filters:" label, nothing active
+        return [html.Span("No filters active", className="text-muted small")]
     return chips
 
 
@@ -391,5 +437,5 @@ def remove_filter_via_chip(_n_clicks_list, current):
         return dash.no_update
     key = ctx.triggered_id["key"]
     state = dict(current)
-    state[key] = None
+    state[key] = [YEAR_MIN, YEAR_MAX] if key == "year_range" else None
     return state

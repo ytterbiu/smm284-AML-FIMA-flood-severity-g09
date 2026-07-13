@@ -38,6 +38,7 @@ DASHBOARD_COLUMNS = [
 
 _df: pl.DataFrame | None = None
 _stat_range_cache: dict[str, tuple[float, float]] = {}
+_year_bounds_cache: tuple[int, int] | None = None
 
 
 def get_df() -> pl.DataFrame:
@@ -89,15 +90,32 @@ def get_stat_range(stat: str = "median") -> tuple[float, float]:
     return _stat_range_cache[stat]
 
 
+def get_year_bounds() -> tuple[int, int]:
+    """(min, max) of yearOfLoss across the full dataset — used as the
+    year-range slider's bounds and as filter-state's default (full-range)
+    value. Cached since it only depends on the full dataset.
+    """
+    global _year_bounds_cache
+    if _year_bounds_cache is None:
+        df = get_df()
+        _year_bounds_cache = (int(df["yearOfLoss"].min()), int(df["yearOfLoss"].max()))
+    return _year_bounds_cache
+
+
 def apply_filters(
     df: pl.DataFrame,
-    year: int | None = None,
+    year_range: tuple[int, int] | list[int] | None = None,
     state: str | None = None,
     zone_family: str | None = None,
 ) -> pl.DataFrame:
-    """Apply zero or more filters to the DataFrame in-memory."""
-    if year is not None:
-        df = df.filter(pl.col("yearOfLoss") == year)
+    """Apply zero or more filters to the DataFrame in-memory.
+
+    year_range: (lo, hi) inclusive on both ends (Polars' is_between default),
+    e.g. (2000, 2000) for a single year. None means no year filter at all.
+    """
+    if year_range is not None:
+        lo, hi = year_range
+        df = df.filter(pl.col("yearOfLoss").is_between(lo, hi))
     if state is not None:
         df = df.filter(pl.col("state") == state)
     if zone_family is not None:
