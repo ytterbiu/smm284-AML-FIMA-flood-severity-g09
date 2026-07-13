@@ -55,6 +55,29 @@ BOOL_INDICATOR_COLS = [
     "primaryResidenceIndicator",
 ]
 
+# zone_family()'s 6 buckets, ascending by median amountPaidOnBuildingClaim
+# (verified on sample data in notebooks/EDA.ipynb cell 5) — the order the
+# dashboard's C3 boxplots and any other zone-ordered chart should use.
+ZONE_ORDER = [
+    "Unknown",
+    "D (undetermined)",
+    "A (SFHA no BFE)",
+    "X/B/C (moderate-min)",
+    "V (velocity)",
+    "A (SFHA w/ BFE)",
+]
+
+# The 50 states + DC. `state` also contains territory/unknown codes (PR,
+# VI, GU, AS, MP, UN) that don't map onto a "USA-states" choropleth and are
+# excluded dataset-wide on the dashboard's Page 1 (see dashboard/PLAN_UI.md).
+US_STATES = {
+    "AL", "AK", "AZ", "AR", "CA", "CO", "CT", "DE", "FL", "GA", "HI", "ID",
+    "IL", "IN", "IA", "KS", "KY", "LA", "ME", "MD", "MA", "MI", "MN", "MS",
+    "MO", "MT", "NE", "NV", "NH", "NJ", "NM", "NY", "NC", "ND", "OH", "OK",
+    "OR", "PA", "RI", "SC", "SD", "TN", "TX", "UT", "VT", "VA", "WA", "WV",
+    "WI", "WY", "DC",
+}
+
 
 def _as_utc_timestamp(value) -> pd.Timestamp:
     ts = pd.Timestamp(value)

@@ -1,0 +1,14 @@
+/* Minimal KPI card styling. Full visual theme not decided yet — see
+   dashboard/AGENTS.md "Deployment Target" / "Layout and Styling". */
+
+.kpi-label {
+    font-size: 0.75rem;
+    color: #6c757d;
+    text-transform: uppercase;
+    letter-spacing: 0.03em;
+}
+
+.kpi-value {
+    font-size: 1.4rem;
+    font-weight: 700;
+}
