@@ -23,4 +23,5 @@ docs/
 tmp_*
 *.ppt*
 *.key
+*.doc*
 exports/dashboard/model_rf.joblib
