@@ -1,0 +1,44 @@
+{
+  "created_at": "2026-07-14T09:57:13+00:00",
+  "versions": {
+    "python": "3.13.2",
+    "sklearn": "1.9.0",
+    "numpy": "2.4.6",
+    "pandas": "3.0.3",
+    "shap": "0.52.0"
+  },
+  "primary_model": "gbm",
+  "models": {
+    "glm": "Pipeline(prep -> TweedieRegressor gamma log-link)",
+    "gbm": "Pipeline(prep -> HistGradientBoostingRegressor gamma loss)",
+    "rf": "Pipeline(prep -> SmearedLogTargetRegressor(RandomForestRegressor)) -- REQUIRES dashboard_support.load_model()"
+  },
+  "fitted_on": "out-of-time training window (yearOfLoss < 2020)",
+  "oot_test_window": "yearOfLoss >= 2020",
+  "target": "amountPaidOnBuildingClaim",
+  "target_units": "CPI-adjusted USD (building claim severity)",
+  "input_schema": {
+    "numeric": [
+      "totalBuildingInsuranceCoverage",
+      "totalContentsInsuranceCoverage",
+      "deductible_amount",
+      "building_age",
+      "crsClassificationCode",
+      "elevationDifference"
+    ],
+    "categorical": [
+      "zone_family",
+      "occupancy_class",
+      "state",
+      "floors_cat",
+      "basement_cat",
+      "postFIRMConstructionIndicator_i",
+      "elevatedBuildingIndicator_i",
+      "primaryResidenceIndicator_i"
+    ]
+  },
+  "prediction_business_rule": "cap predictions at totalBuildingInsuranceCoverage -- use dashboard_support.clip_at_coverage(pred, X_raw)",
+  "baseline_rule": "zone_family -> baseline_zone_means.csv lookup; unseen zone -> train global mean = 49811.57",
+  "gamma_deviance_pred_floor": 395.1583523406813,
+  "random_state": 9
+}

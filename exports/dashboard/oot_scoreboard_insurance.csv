@@ -1,0 +1,6 @@
+Model,Gamma deviance,Gini,MAE ($)
+Baseline (global median),5.081258,0.005142,68092.852073
+Baseline (zone mean),1.937449,0.092414,64464.967921
+"GLM (Gamma, log-link)",1.862837,0.229207,64365.164264
+"RF (bagging, smeared log target)",2.601954,0.299208,62323.06531
+GBM (gamma loss),1.925465,0.329651,61041.919057
