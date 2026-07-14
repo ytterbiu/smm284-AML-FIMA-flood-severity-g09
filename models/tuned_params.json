@@ -1,19 +1,82 @@
 {
   "sample_oot": {
-    "tuned_at": "2026-07-14T02:04:10+00:00",
+    "tuned_at": "2026-07-14T02:49:51+00:00",
     "n_train": 20088,
     "cutoff_year": 2020,
-    "scoring": "neg_mean_absolute_error",
+    "scoring": "neg_mean_gamma_deviance (floored at 1st pct of train severity)",
+    "search": "GLM: grid; GBM: successive halving (resource=max_iter)",
     "cv": "5-fold year-grouped (no fold contains its own year)",
     "sklearn": "1.9.0",
     "glm": {
       "best_params": {
-        "glm__alpha": 0.03
+        "glm__alpha": 0.1
       },
-      "best_cv_mae": 43761.10969250239,
-      "n_candidates": 9,
+      "best_cv_score": 1.8238875394059377,
+      "n_candidate_rows": 9,
       "full_estimator_params": {
-        "alpha": 0.03,
+        "alpha": 0.1,
+        "fit_intercept": true,
+        "link": "log",
+        "max_iter": 5000,
+        "power": 2,
+        "solver": "lbfgs",
+        "tol": 0.0001,
+        "verbose": 0,
+        "warm_start": false
+      }
+    },
+    "gbm": {
+      "best_params": {
+        "gbm__min_samples_leaf": 20,
+        "gbm__max_leaf_nodes": 31,
+        "gbm__learning_rate": 0.03,
+        "gbm__l2_regularization": 0.0,
+        "gbm__max_iter": 405,
+        "gbm__early_stopping": false
+      },
+      "best_cv_score": 2.1251112271597945,
+      "n_candidate_rows": 37,
+      "full_estimator_params": {
+        "categorical_features": "from_dtype",
+        "early_stopping": false,
+        "interaction_cst": null,
+        "l2_regularization": 0.0,
+        "learning_rate": 0.03,
+        "loss": "gamma",
+        "max_bins": 255,
+        "max_depth": null,
+        "max_features": 1.0,
+        "max_iter": 405,
+        "max_leaf_nodes": 31,
+        "min_samples_leaf": 20,
+        "monotonic_cst": null,
+        "n_iter_no_change": 10,
+        "quantile": null,
+        "random_state": 9,
+        "scoring": "loss",
+        "tol": 1e-07,
+        "validation_fraction": 0.1,
+        "verbose": 0,
+        "warm_start": false
+      }
+    }
+  },
+  "full_oot": {
+    "tuned_at": "2026-07-14T05:21:28+00:00",
+    "n_train": 1791249,
+    "cutoff_year": 2020,
+    "scoring": "neg_mean_gamma_deviance (floored at 1st pct of train severity)",
+    "search": "GLM: grid; GBM: successive halving (resource=max_iter)",
+    "cv": "5-fold year-grouped (no fold contains its own year)",
+    "sklearn": "1.9.0",
+    "glm": {
+      "best_params": {
+        "glm__alpha": 0.1
+      },
+      "best_cv_score": 1.831555100016684,
+      "n_candidate_rows": 9,
+      "full_estimator_params": {
+        "alpha": 0.1,
         "fit_intercept": true,
         "link": "log",
         "max_iter": 5000,
@@ -28,23 +91,24 @@
       "best_params": {
         "gbm__min_samples_leaf": 10,
         "gbm__max_leaf_nodes": 63,
-        "gbm__max_iter": 500,
-        "gbm__learning_rate": 0.15,
-        "gbm__l2_regularization": 1.0
+        "gbm__learning_rate": 0.03,
+        "gbm__l2_regularization": 1.0,
+        "gbm__max_iter": 405,
+        "gbm__early_stopping": false
       },
-      "best_cv_mae": 40377.218496215544,
-      "n_candidates": 25,
+      "best_cv_score": 1.9425362080816382,
+      "n_candidate_rows": 37,
       "full_estimator_params": {
         "categorical_features": "from_dtype",
-        "early_stopping": "auto",
+        "early_stopping": false,
         "interaction_cst": null,
         "l2_regularization": 1.0,
-        "learning_rate": 0.15,
+        "learning_rate": 0.03,
         "loss": "gamma",
         "max_bins": 255,
         "max_depth": null,
         "max_features": 1.0,
-        "max_iter": 500,
+        "max_iter": 405,
         "max_leaf_nodes": 63,
         "min_samples_leaf": 10,
         "monotonic_cst": null,
@@ -59,7 +123,7 @@
       }
     }
   },
-  "full_oot": {
+  "full_oot_superseded_mae": {
     "tuned_at": "2026-07-05T02:25:49+00:00",
     "n_train": 1791249,
     "cutoff_year": 2020,
