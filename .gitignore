@@ -31,3 +31,4 @@ tmp_*
 
 ANALYSIS_SUMMARY.md
 CLAUDE.md
+exports/dashboard/model_rf.joblib
