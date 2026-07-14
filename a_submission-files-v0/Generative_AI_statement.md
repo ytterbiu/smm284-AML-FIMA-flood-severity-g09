@@ -2,8 +2,9 @@
 
 GenAI functioned as an additional technical resource to assist with code
 troubleshooting, methodological validation, and drafting visualisations. All
-final analysis, statistical interpretation, and written content were generated
-and verified exclusively by the group members.
+analysis, statistical interpretation, and substantive content originated with
+the group. Where AI tools assisted with prose, the group authored the draft
+first, reviewed every suggestion, and retained final editorial control.
 
 ## 1. Tools Used
 
@@ -23,6 +24,12 @@ permitted categories:
 - Editing or Improving Writing:
   - Assisted with converting draft content between document formats and checking
     grammatical structure
+  - Simplified unnecessarily technical phrasing in draft prose with
+    plain-English equivalents
+  - Suggested restructuring within sections including reordering paragraphs so
+    that rejected alternatives follow the options adopted
+  - In one instance the tool proposed a qualifier on our target-leakage claim
+    ("on its own"), which we reviewed against our own audit and accepted
 - Explaining Methods/Concepts:
   - Used to clarify conceptual assumptions (e.g., explaining nuances in flood
     reinsurance)
@@ -43,6 +50,9 @@ included one example of each primary prompt type:
     future years, does this make sense?"
 - Content Summarisation:
   - "Help to identify the key points in this extract/paper..."
+- Prose Editing:
+  - "Help with rephrasing something in plain business English: [draft
+    paragraph]... terms like 'idempotently' are unnecessarily complex"
 - Plotting Adjustments:
   - "This histogram takes ~4 minutes to plot - how can we make this more
     efficient"
