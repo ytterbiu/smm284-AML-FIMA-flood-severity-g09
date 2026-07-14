@@ -1,21 +1,68 @@
-"""dashboard/app.py — Dash app init.
+"""dashboard/app.py — Dash app init + app shell.
 
 Run locally: ./.venv/Scripts/python.exe dashboard/app.py
 Starts the dev server at http://localhost:8050 with hot reload.
+
+The app shell (filter-state Store, nav, shared control row, kpi-row) lives
+here, outside dash.page_container, so it persists across page navigation —
+see dashboard/AGENTS.md "App shell vs. page content".
 """
 from __future__ import annotations
 
 import dash
+from dash import dcc, html, callback, Input, Output
 import dash_bootstrap_components as dbc
+
+from shared_controls import DEFAULT_FILTER, build_control_row
 
 app = dash.Dash(
     __name__,
     use_pages=True,
     external_stylesheets=[dbc.themes.BOOTSTRAP],
+    suppress_callback_exceptions=True,  # each page's chart IDs only exist while that page is mounted
 )
 server = app.server  # required for gunicorn
 
-app.layout = dbc.Container(dash.page_container, fluid=True)
+# Imported after the Dash app exists so use_pages' own page discovery has
+# already registered them; needed here (not just via page_registry) because
+# we call each page's own build_kpi_cards(), not just its layout.
+from pages import overview, under_insurance  # noqa: E402
+
+_NAV_LINKS = dbc.Nav(
+    [
+        dbc.NavLink(page["name"], href=page["path"], active="exact")
+        for page in dash.page_registry.values()
+    ],
+    pills=True,
+    className="mb-3",
+)
+
+app.layout = dbc.Container(
+    [
+        dcc.Location(id="url"),
+        dcc.Store(id="filter-state", data=DEFAULT_FILTER),
+        dcc.Store(id="c2-scale-state", data="raw"),
+        _NAV_LINKS,
+        build_control_row(),
+        dash.page_container,
+    ],
+    fluid=True,
+)
+
+
+@callback(
+    Output("kpi-row", "children"),
+    Input("url", "pathname"),
+    Input("filter-state", "data"),
+)
+def update_kpi_row(pathname, filter_state):
+    # Each page module exposes its own build_kpi_cards(filter_state) -> list
+    # of dbc.Card components — content AND count vary per page (2 on "/",
+    # 4 on "/under-insurance").
+    if pathname == "/under-insurance":
+        return under_insurance.build_kpi_cards(filter_state)
+    return overview.build_kpi_cards(filter_state)
+
 
 if __name__ == "__main__":
     app.run(debug=True)

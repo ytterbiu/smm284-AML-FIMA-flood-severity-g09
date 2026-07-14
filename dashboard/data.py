@@ -26,14 +26,18 @@ _DATA_PATH = REPO_ROOT / "data" / "processed" / f"claims_{_MODE}.parquet"
 
 TARGET = "amountPaidOnBuildingClaim"
 
-# Page 1 only needs these 5 of the processed file's 46 columns — column
-# pushdown at read time. Page 2 (model UI) will define its own column list.
+# Column pushdown at read time — widen this list when a page genuinely
+# needs another column (e.g. Page 2's under-insurance charts below), rather
+# than loading all 46. Page 3 (model UI) will need a much wider set and
+# should get its own load path rather than growing this one further.
 DASHBOARD_COLUMNS = [
     "state",
     "zone_family",
     "yearOfLoss",
     TARGET,
     f"{TARGET}_nominal",
+    "totalBuildingInsuranceCoverage",  # Page 2: coverage ratio
+    "buildingReplacementCost",  # Page 2: coverage ratio
 ]
 
 _df: pl.DataFrame | None = None

@@ -73,13 +73,57 @@ pattern), writing outputs to `data/processed/` (already gitignored).
 
 ## Phase 3 — Dashboard (Dash)
 
-Two sections; **Page 1 (EDA) built first**, Page 2 (model UI) blocked on
-Ben's saved model (see below).
+Three pages: **Page 1 (severity overview) built first**, **Page 2
+(under-insurance)** next, **Page 3 (model UI)** blocked on Ben's saved
+model (see below).
 
 Reference implementation for conventions: `C:\Users\ardih\Data\CMS_Health_Insurance_Exchange\dashboard`
 (see its `PLAN.md`/`AGENTS.md`) — same `dcc.Store`-as-single-source-of-truth
 filter pattern, same dark-theme/Bootstrap conventions, adapted to this
 app's chart set.
+
+### Architecture change for multi-page: global filter-state + shared control row
+
+Page 1 was originally built as if it were the only page — `filter-state`
+and the whole control row (year slider, stat toggle, KPI cards, active-filter
+chips, reset) lived inside `pages/overview.py`. Adding Page 2 means
+promoting these to app-shell level so they're shared rather than
+per-page-duplicated:
+
+- **`dcc.Store(id="filter-state")` moves to `app.py`'s top-level layout**,
+  outside `dash.page_container`, so it persists across page navigation —
+  confirmed intentional (not per-page-independent): selecting a state or
+  zone on one page stays selected when you switch pages, letting you
+  explore the same claim subset through both the severity and
+  under-insurance lens. `zone_family` in particular is shared literally
+  identically — clicking a zone on Page 2's by-zone chart sets the exact
+  same field Page 1's C3 boxplot clicks do.
+- **The control row's year slider / stat toggle / active-filter chips /
+  reset button also move to `app.py`**, built by a shared function (e.g.
+  `dashboard/components.py: build_control_row()`), so there's exactly one
+  copy in the DOM regardless of route, instead of duplicating the same
+  markup+IDs per page.
+- **The KPI cards are the one part that stays page-aware — in both
+  content *and count*** (2 cards on Page 1, up to 4 on Page 2). These live
+  in their own `html.Div(id="kpi-row")` in the app shell, populated by one
+  callback keyed off `dcc.Location(id="url").pathname` + `filter-state`.
+  Each page module exposes its own `build_kpi_cards(filter_state) -> list`
+  function (co-located with that page's other logic); the shared callback
+  just dispatches to the right one based on the current path.
+- The callbacks that currently live in `pages/overview.py` but operate on
+  the now-shared control row (`update_filter_state`, `update_stat_buttons`,
+  `sync_year_range_slider`, `update_active_filters_display`,
+  `remove_filter_via_chip`) move to a shared module too (e.g.
+  `dashboard/shared_controls.py`), imported once from `app.py` — so they're
+  registered exactly once rather than per-page.
+- **`suppress_callback_exceptions=True`** needs adding to the `Dash()`
+  constructor: each page's own chart callbacks (`choropleth-map`,
+  future under-insurance chart IDs) reference component IDs that only
+  exist while *that* page is mounted, which Dash's default startup
+  validation would otherwise flag as missing.
+- **A simple nav** needs adding — there currently isn't one, since this was
+  single-page until now. A `dbc.Nav`/`dbc.NavLink` pair driven by
+  `dash.page_registry` in the app shell is enough.
 
 ### Page 1 — "How much does flood insurance pay out in the USA?"
 
@@ -98,8 +142,10 @@ feature set, kept for the future model-input page), but Page 1 only needs
 uses on the raw FEMA parquet. This meaningfully lowers the full-data memory
 footprint below the earlier "few hundred MB to ~1GB" estimate (that number
 assumed all 46 columns); re-check actual usage once `mode=full` exists.
-Page 2 will need its own, wider column set (the `NUMERIC`/`CATEG` feature
-list from `BE_notes.ipynb` §7) — not a reason to widen Page 1's load.
+This 5-column set was widened by 2 for Page 2's under-insurance charts (see
+below); Page 3 (model UI) will need a much wider set (the `NUMERIC`/`CATEG`
+feature list from `BE_notes.ipynb` §7) and should get its own load path
+rather than growing this shared one further.
 
 **Layout (top → bottom)**
 ```
@@ -330,7 +376,82 @@ redefining it (the `US_STATES` set currently only exists ad hoc in
    since sample data (22K rows) wouldn't expose a raw-array performance
    problem even if we'd built it the naive way.
 
-### Page 2 — Model UI *(blocked — see below)*
+### Page 2 — Under-Insurance
+
+Ports `BE_notes.ipynb` §14 ("Behavioural rider: under-insurance") — compares
+`totalBuildingInsuranceCoverage` to `buildingReplacementCost` — into two
+interactive charts, sharing the global filter-state and control row from
+Page 1 (see "Architecture change" above).
+
+**Data**: same cached `get_df()` DataFrame as Page 1, widened by 2 columns
+— `totalBuildingInsuranceCoverage` and `buildingReplacementCost` — added to
+`DASHBOARD_COLUMNS`. A second, *local* validity gate applies on top of the
+usual year/state/zone filters: only rows where both columns are present
+and `buildingReplacementCost > 0` count toward this page's charts/KPIs
+(mirrors the notebook's `ok = rc.notna() & cov.notna() & (rc > 0)` mask).
+Coverage ratio (`coverage / replacement_cost`) is clipped at 2, matching
+the notebook.
+
+**Status bands** (shared across both charts, same 3 colors and thresholds
+everywhere on this page):
+| Band | Threshold | Color |
+|---|---|---|
+| Adequately insured | ratio ≥ 0.8 | neutral (e.g. steel blue) |
+| Under-insured | 0.5 ≤ ratio < 0.8 | amber |
+| Severely under-insured | ratio < 0.5 | red |
+
+**Layout (top → bottom)**, same control-row-then-charts shape as Page 1:
+```
+(shared control row + page-aware KPI row — see below)
+----------------------------------------------------------------
+C4 (coverage-ratio histogram, colored by band)  |  C5 (100%-stacked
+                                                 |  bar: status share by zone)
+```
+
+**Chart specs**:
+- **C4 — coverage-ratio histogram**: same server-side `np.histogram`
+  binning discipline as C2 (payload size independent of row count), but
+  bin edges are constructed as **three concatenated `linspace` ranges**
+  (0→0.5, 0.5→0.8, 0.8→2.0) rather than one uniform range, so 0.5 and 0.8
+  always land exactly on a bin boundary — no single bar straddles two
+  status bands. Each bar colored by whichever band its bin falls in.
+- **C5 — by-zone stacked bar**: one 100%-stacked bar per `zone_family` (in
+  the existing `ZONE_ORDER`), three segments (adequately insured /
+  under-insured / severely under-insured) summing to 100%, same 3 colors
+  as C4 — an upgrade from the notebook's single-metric version (which only
+  plotted share-under-80%). **Clickable**, same as Page 1's C3: clicking a
+  zone's bar sets the shared `zone_family` filter (highlight/dim, not a
+  self-filter — same "never filter yourself" rule as C3).
+
+**Page-aware KPI row** (Page 2's 4 cards, replacing Page 1's 2 in the same
+`html.Div(id="kpi-row")` slot):
+1. Coverage Ratio (Median/Mean, per the shared `stat` toggle — confirmed
+   still meaningful here as the reference stat, even though the notebook
+   itself only ever printed a median)
+2. Properties Assessed (count passing the local validity gate, on top of
+   the global filters — this page's equivalent of Page 1's "Claims" count)
+3. % Under-insured (< 80%)
+4. % Severely under-insured (< 50%)
+
+**Build order**
+1. Do the multi-page architecture change first (Store + control row →
+   `app.py`, `suppress_callback_exceptions=True`, nav, page-aware
+   `kpi-row` callback) — Page 1 needs to keep working identically
+   afterward before Page 2 is added on top.
+2. Widen `DASHBOARD_COLUMNS`; add the coverage-ratio + validity-gate logic
+   (co-located with Page 2's chart code, not promoted into `data.py`,
+   since it's specific to this page).
+3. `charts/coverage_histogram.py` (C4) — validate the three-band bin
+   construction against real data before wiring it to filters.
+4. `charts/under_insurance_by_zone.py` (C5) — validate the stacked-bar
+   click-to-filter behaviour the same way C3's was validated (Build Order
+   step 3 on Page 1) — expected to work the same way, but worth a quick
+   sanity check given it's a new chart type (`go.Bar` with `barmode="stack"`
+   rather than `go.Box`).
+5. Wire `pages/under_insurance.py`'s layout + callbacks; confirm Page 1
+   still works unchanged after the shared-architecture refactor.
+
+### Page 3 — Model UI *(blocked — see below)*
 
 Feature-input form → prediction → explanation (SHAP feature importance,
 lift vs. flat-zone baseline). Needs a serialized model artifact.
@@ -339,7 +460,7 @@ lift vs. flat-zone baseline). Needs a serialized model artifact.
 notebook — the fitted `best_model` (untuned GBM, refit on the OOT training
 set) only ever exists in-memory during a notebook run. Need Ben to export
 it (e.g. `joblib.dump(best_model, "models/best_model.joblib")`) before Page
-2 can start. Revisit once that's available — don't build against a
+3 can start. Revisit once that's available — don't build against a
 placeholder/re-trained-by-us model, since the whole point is to serve
 *his* selected, validated model.
 
@@ -360,7 +481,28 @@ placeholder/re-trained-by-us model, since the whole point is to serve
       `data.py`, `app.py`, `pages/overview.py`, all three `charts/*.py`
       modules, and every callback in Build Order steps 1–5 are done. Fixed
       the choropleth's colorbar scaling bug caught during manual testing
-      (see "Chart specs" → C1). Not yet done: a full in-browser click-through
-      of every interaction together (year, stat, state click, zone click,
-      C2 scale toggle, reset, in combination), and Build Order step 6
-      (rerun against `claims_full.parquet`). Page 2 blocked on Ben.
+      (see "Chart specs" → C1). Also fixed post-launch: year filter changed
+      from a single nullable year to an always-present `year_range` (range
+      slider), and active-filter chips added (with click-to-remove). Not
+      yet done: a full in-browser click-through of every interaction
+      together, and Build Order step 6 (rerun against `claims_full.parquet`).
+- [~] Page 2 (under-insurance) — built: multi-page architecture change done
+      (`shared_controls.py` extracted; `filter-state`/control row/nav/
+      kpi-row now live in `app.py`'s shell); `charts/status_bands.py`
+      (shared 3-band logic), `charts/coverage_histogram.py` (C4),
+      `charts/under_insurance_by_zone.py` (C5), and
+      `pages/under_insurance.py` all done. Verified against real data:
+      Page 1 KPIs/charts still work identically post-refactor; Page 2 KPIs
+      (88% median coverage ratio, 15,805 properties assessed, 41%/20%
+      under-insured/severely) and C4/C5 chart traces all check out.
+      In-browser click-through done: nav between pages, C5's stacked-bar
+      click-to-filter all confirmed working. Caught and fixed a real bug in
+      the process — `shared_controls.update_filter_state` originally
+      bundled `choropleth-map`/`zone-boxplots` (Page 1) and
+      `zone-status-bars` (Page 2) `clickData` into one callback, which
+      threw a runtime "nonexistent object" error the moment any one of them
+      fired (`suppress_callback_exceptions` only skips startup validation,
+      not this). Fixed by giving each page its own chart-click callback
+      instead — see `AGENTS.md` "Callbacks". Not yet done: Build Order
+      step 6 (rerun against `claims_full.parquet`). Page 3 (model UI)
+      still blocked on Ben.
