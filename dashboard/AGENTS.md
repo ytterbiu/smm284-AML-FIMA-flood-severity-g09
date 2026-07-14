@@ -27,9 +27,15 @@ dashboard/
 │                             # update_active_filters_display, remove_filter_via_chip) — registered
 │                             # once, used by every page, not duplicated per-page.
 ├── data.py                  # Loads and caches data/processed/claims_{mode}.parquet at import time
+├── model_data.py            # (planned) Own load path for the Model section's wide NUMERIC/CATEG
+│                             # feature set + TARGET — do not grow data.py's DASHBOARD_COLUMNS for this.
 ├── pages/
 │   ├── overview.py          # Page 1: Flood Payout Overview (path="/"). Exposes build_kpi_cards(filter_state).
-│   └── under_insurance.py   # Page 2: Under-Insurance (path="/under-insurance"). Same build_kpi_cards(...) contract.
+│   ├── under_insurance.py   # Page 2: Under-Insurance (path="/under-insurance"). Same build_kpi_cards(...) contract.
+│   ├── model_performance.py # (planned) path="/model/performance" — CV/OOT comparison, tuning diagnostics
+│   ├── model_importance.py  # (planned) path="/model/importance" — SHAP / feature importance
+│   ├── model_lift.py        # (planned) path="/model/lift" — Lorenz curve / double lift charts
+│   └── model_predict.py     # (planned) path="/model/predict" — feature-input form + live prediction
 ├── charts/
 │   ├── choropleth.py            # build_choropleth(df, stat, selected_state) -> go.Figure      (C1)
 │   ├── histogram.py             # build_histogram(df, log=False) -> go.Figure                  (C2)
@@ -39,6 +45,10 @@ dashboard/
 └── assets/
     └── theme.css             # Styling overrides
 ```
+
+**Model section (`/model/*`) is a planned 4-page group — see `PLAN_UI.md`
+"Model section (Pages 3+)"** for the full data contract (what's blocked on
+Ben vs. buildable now) before writing any of those page modules.
 
 Data files (Parquet) live at `../data/processed/claims_{mode}.parquet`
 relative to `dashboard/` — output of `src/data/pipeline.py` (see root
@@ -174,6 +184,17 @@ Each page module exposes its own `build_kpi_cards(filter_state) -> list`
 (co-located with that page's other logic, not centralized in `app.py`),
 and the shell callback just dispatches to the right one based on the
 current path — don't hardcode per-page KPI logic directly in `app.py`.
+
+### Hiding the shared control row on the Model section
+Pages under `/model/*` (planned — see `PLAN_UI.md`) don't participate in
+the global `filter-state` at all: they show properties of a *fitted
+model* evaluated once on a fixed OOT split (or a hypothetical single
+property, for the predict page), not the currently-filtered claims subset.
+Hide the shared control row for the whole section with a pathname check in
+the app shell (`pathname.startswith("/model")`), same underlying
+mechanism as the KPI-row dispatch — hiding instead of swapping content.
+Don't build a `build_kpi_cards()` for these pages either; they don't have
+KPI cards driven by `filter-state` the way Pages 1–2 do.
 
 ---
 

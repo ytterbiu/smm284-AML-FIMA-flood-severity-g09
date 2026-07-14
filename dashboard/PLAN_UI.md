@@ -451,18 +451,91 @@ C4 (coverage-ratio histogram, colored by band)  |  C5 (100%-stacked
 5. Wire `pages/under_insurance.py`'s layout + callbacks; confirm Page 1
    still works unchanged after the shared-architecture refactor.
 
-### Page 3 — Model UI *(blocked — see below)*
+### Model section (Pages 3+) — multiple pages, not one
 
-Feature-input form → prediction → explanation (SHAP feature importance,
-lift vs. flat-zone baseline). Needs a serialized model artifact.
+Originally scoped as a single "Page 3 — Model UI." Expanded on request into
+four sub-pages, since the model story has four genuinely different
+outputs to show:
 
-**Blocker:** nothing downstream of raw ingestion is currently saved by the
-notebook — the fitted `best_model` (untuned GBM, refit on the OOT training
-set) only ever exists in-memory during a notebook run. Need Ben to export
-it (e.g. `joblib.dump(best_model, "models/best_model.joblib")`) before Page
-3 can start. Revisit once that's available — don't build against a
-placeholder/re-trained-by-us model, since the whole point is to serve
-*his* selected, validated model.
+- **Model performance** — CV/OOT comparison across models (MAE, RMSE, R²,
+  D²)
+- **Feature importance / SHAP**
+- **Lorenz curve / double lift charts**
+- **Feature input UI + prediction**, across multiple models
+
+**None of these participate in the shared `filter-state`/control row from
+Pages 1–2.** They're all properties of a *fitted model* evaluated once on a
+fixed OOT split (or, for the predict page, a hypothetical single property),
+not the currently-filtered claims subset — there's no meaningful "state"/
+"zone"/"year" filter to apply to a SHAP summary or a Lorenz curve. The
+shared control row is hidden across this entire section (a pathname check
+in the app shell, e.g. `pathname.startswith("/model")`), same underlying
+mechanism as the page-aware `kpi-row`, just hiding rather than swapping
+content.
+
+**Data contract — what's needed from Ben, and what's buildable now.**
+Checked `models/` directly (as of his "Updates BE notes with new models"
+commit, merged into `dev_ui`): the new baselines/random-forest results
+exist only as in-notebook output — no new file was added. `tuned_params.json`
+still only has `glm`/`gbm` keys; `cv_results_*_oot_{glm,gbm}.csv` are raw
+`GridSearchCV.cv_results_` dumps (candidate-level CV MAE only — no RMSE/R²/
+D², no baseline, no random forest, no held-out OOT test scores). So:
+
+| Sub-page | Needs from Ben | Status |
+|---|---|---|
+| Model performance | An OOT scoreboard export (MAE/RMSE/R²/D² per model — baseline/GLM/GBM/RF), likely just `.to_csv()` on his existing results table | **Blocked** |
+| Feature importance / SHAP | SHAP values + feature names (or at minimum a "mean \|SHAP\| by feature" table) for the primary model | **Blocked** |
+| Lorenz curve / double lift | Just the fitted model artifact (`joblib.dump`) — predictions against our own OOT-processed data can be computed ourselves once that exists | **Blocked** |
+| Feature input + prediction | Fitted model artifact(s) — GLM/GBM/RF; the trivial zone-mean baseline doesn't need one, easy to reimplement directly | **Blocked** |
+
+Everything is blocked on Ben in some way *except* one thing:
+
+**Buildable right now, no new data needed**: the "tuning surface is flat"
+chart from `BE_notes.ipynb` §12 (candidate rank vs. CV MAE with error bars,
+from the existing `cv_results_*_oot_{glm,gbm}.csv` + `tuned_params.json`) —
+recreates the finding already summarized in `ANALYSIS_SUMMARY.md` §7 (top-5
+GBM candidates within $120 of each other vs. ~$12,000 fold-to-fold std).
+Goes on the **Model performance** page as a first, real chart while the
+cross-model OOT scoreboard stays blocked.
+
+**Also buildable now**: the feature-input form's *layout* (not live
+prediction) on the **predict** page — the exact `NUMERIC`/`CATEG` feature
+list is already known (`BE_notes.ipynb` §7, 6 numeric + 8 categorical, see
+below), so the input widgets (dropdowns for categoricals, number inputs for
+numerics) can be laid out now, with the "Predict" button disabled and a
+"model not available yet" message, swapped for real inference once Ben's
+artifact lands.
+
+```python
+NUMERIC = ["totalBuildingInsuranceCoverage", "totalContentsInsuranceCoverage",
+           "deductible_amount", "building_age", "crsClassificationCode",
+           "elevationDifference"]
+CATEG = ["zone_family", "occupancy_class", "state", "floors_cat",
+         "basement_cat", "postFIRMConstructionIndicator_i",
+         "elevatedBuildingIndicator_i", "primaryResidenceIndicator_i"]
+```
+
+**Data loading**: this section needs a much wider column set than Pages
+1–2's 7-column `DASHBOARD_COLUMNS` (all of `NUMERIC`/`CATEG` above, plus
+`TARGET` for the Lorenz/lift charts' actuals). Gets its **own load path**
+(e.g. `dashboard/model_data.py`) rather than growing the shared
+`get_df()`/`DASHBOARD_COLUMNS` further — confirmed in `AGENTS.md` already,
+still the right call now that there's a concrete feature list to load.
+
+**Build order**
+1. Nav/routing: add the 4 `/model/*` pages (placeholder layouts), hide the
+   shared control row across the section.
+2. **Model performance page**: tuning-diagnostics chart from existing
+   `cv_results_*`/`tuned_params.json` (buildable now) + a placeholder
+   panel for the cross-model OOT scoreboard (blocked).
+3. **Predict page**: static input-form layout from the known
+   `NUMERIC`/`CATEG` list (buildable now), predict button disabled/
+   placeholder until Ben's model artifact exists.
+4. Feature importance/SHAP and Lorenz/lift pages: placeholder layouts only
+   for now — genuinely blocked, nothing to build yet beyond the shell.
+5. Once Ben exports the OOT scoreboard + model artifact (+ ideally SHAP
+   values): wire up live predictions, the real scoreboard, SHAP plots, and
+   compute Lorenz/lift curves ourselves against our own OOT-processed data.
 
 ## Status
 
@@ -504,5 +577,15 @@ placeholder/re-trained-by-us model, since the whole point is to serve
       fired (`suppress_callback_exceptions` only skips startup validation,
       not this). Fixed by giving each page its own chart-click callback
       instead — see `AGENTS.md` "Callbacks". Not yet done: Build Order
-      step 6 (rerun against `claims_full.parquet`). Page 3 (model UI)
-      still blocked on Ben.
+      step 6 (rerun against `claims_full.parquet`).
+- [~] Model section (Pages 3+) — expanded from a single "Page 3" into 4
+      sub-pages (performance/importance/lift/predict) at the user's
+      request, since the model story needs genuinely different outputs on
+      each. Checked `models/` after Ben's latest commit: new
+      baselines/random-forest results aren't exported anywhere (only
+      in-notebook output) — data contract for what's needed from Ben
+      written up in full above. Everything is blocked except the
+      tuning-diagnostics chart (buildable now from existing
+      `cv_results_*`/`tuned_params.json`) and the predict page's static
+      input-form layout (buildable now from the known `NUMERIC`/`CATEG`
+      list). Not yet built — plan only so far.
