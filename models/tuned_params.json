@@ -1,6 +1,6 @@
 {
   "sample_oot": {
-    "tuned_at": "2026-07-04T23:31:29+00:00",
+    "tuned_at": "2026-07-14T02:04:10+00:00",
     "n_train": 20088,
     "cutoff_year": 2020,
     "scoring": "neg_mean_absolute_error",
