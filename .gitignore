@@ -19,13 +19,13 @@ docs/
 
 *.pdf
 tmp_*
-<<<<<<< HEAD
 *.ppt*
 *.key
-=======
 
 .claude/
 
 .jupyter/
 .jupyter_ystore.db
->>>>>>> 2a6d7bc (Create new dev_ui branch for UI dashboard.)
+
+ANALYSIS_SUMMARY.md
+CLAUDE.md
