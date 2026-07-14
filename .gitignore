@@ -8,6 +8,8 @@ outputs/*
 
 # BE personal notes and resources (that I don't wish to track with Git)
 BE-resources/
+clean_notebook.py
+
 # Temporary working files or drafts or new models
 tmp-files*/
 
