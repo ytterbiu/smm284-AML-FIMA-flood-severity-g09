@@ -459,8 +459,11 @@ outputs to show:
 
 - **Model performance** — CV/OOT comparison across models (MAE, RMSE, R²,
   D²)
-- **Feature importance / SHAP**
-- **Lorenz curve / double lift charts**
+- **Lorenz curve / double lift charts** — moved to immediately after Model
+  performance in the nav (`order=3`), per user request, since both pages
+  share the model-toggle control below and read naturally as one
+  "comparing models" pair
+- **Feature importance / SHAP** — pushed to `order=4`
 - **Feature input UI + prediction**, across multiple models
 
 **None of these participate in the shared `filter-state`/control row from
@@ -472,6 +475,22 @@ shared control row is hidden across this entire section (a pathname check
 in the app shell, e.g. `pathname.startswith("/model")`), same underlying
 mechanism as the page-aware `kpi-row`, just hiding rather than swapping
 content.
+
+**Model-selection toggle (Model performance + Lorenz/lift only) — added
+after initial build, per user request.** Distinct from the Pages 1–2
+`filter-state`: this doesn't filter claims rows, it filters *which models*
+appear in these two pages' charts (e.g. hide "Baseline (global mean)" or
+"RF" from the comparison). A `dcc.Checklist` of all 6 `MODEL_COLORS` keys
+(all checked by default) lives in a second shell-level control row,
+shown/hidden by the same pathname-check mechanism but scoped to exactly
+`/model/performance` and `/model/lift` (not `/model/importance`, which is
+GBM-only by design, nor `/model/predict`, which already shows all 4
+non-degenerate models side by side). Selection is held in a new
+`dcc.Store(id="model-selection-state")` in `app.py`, so it persists across
+navigation between the two pages. Both pages' chart-building functions
+become callback-driven (`Input("model-selection-state", "data")`) instead
+of static figures built once at layout time. Zero-models-selected is
+handled as an explicit empty state (a message), not an empty chart.
 
 **Data contract — RESOLVED.** A teammate exported a full artifact bundle to
 `exports/dashboard/` (`model_glm.joblib`/`model_gbm.joblib` committed;
@@ -648,11 +667,81 @@ pattern as the raw FEMA download.
    RF/GBM tracking closely) — it's the log1p + Duan's-smearing
    back-transform amplifying a synthetic, independently-median/mode'd
    combination that may not resemble any real observed property.
-6. **Lorenz / double lift page**: filter our own `claims_{mode}.parquet` to
-   `yearOfLoss >= 2020` (the OOT window per `metadata.json`), score with
-   all three models via `model_data`, compute Lorenz curves (cumulative %
-   loss vs. cumulative % policies, ranked by predicted severity) and a
-   double lift chart (GBM vs. RF, or vs. baseline) ourselves.
+6. [ ] **Shared model-selection toggle**, in progress:
+   - New `dbc.Checklist` control (all 6 `MODEL_COLORS` keys, all checked by
+     default) in a new shell-level row in `app.py`, shown only on
+     `/model/performance` and `/model/lift`.
+   - `dcc.Store(id="model-selection-state")` in the app shell, written by
+     the checklist, read by both pages' chart callbacks.
+   - Nav reorder: `pages/model_lift.py` → `order=3`,
+     `pages/model_importance.py` → `order=4`.
+   - `charts/oot_scoreboard.py` / `pages/model_performance.py`: convert C6
+     from a static figure to a callback (`Input("model-selection-state",
+     "data")`), filtering `oot_scoreboard.csv` to the selected models
+     before the existing ascending-MAE ordering logic. Empty selection ->
+     explicit message, not an empty chart.
+7. [x] **Lorenz / double lift page** (`pages/model_lift.py`), reads the same
+   `model-selection-state`:
+   - `model_data.py` gained a uniform `get_predictions(model_name, df)` /
+     `get_oot_predictions(model_name)` (cached) covering all 6
+     `MODEL_COLORS` display names, not just the 3 fitted models: the 3
+     fitted models via `predict()`, `Baseline (zone mean)` via
+     `predict_baseline()`, `Baseline (global mean)` via
+     `BASELINE_GLOBAL_MEAN`, and `Baseline (global median)` — not exported
+     (`metadata.json` only gives the global *mean*), so computed ourselves
+     as `get_baseline_global_median()`: the median of `TARGET` on our own
+     training window (`yearOfLoss < OOT_CUTOFF_YEAR`), same spirit as the
+     exported mean constant, never leaking OOT rows into a "baseline."
+   - **Lorenz curve** (`charts/lorenz_curve.py`, C11): one curve per
+     selected model + a diagonal reference line. Convention: sort OOT rows
+     ascending by that model's predicted severity, plot cumulative % of
+     policies (x) vs. cumulative % of actual loss (y) — a standard
+     concentration-curve setup, chosen partly so the result could be
+     cross-checked against the teammate's already-computed Gini column in
+     `oot_scoreboard_insurance.csv` (Gini = 1 - 2×area under the curve)
+     before shipping. **Verified**: computed Gini on our own ~2,445-row
+     OOT sample preserved the exact same ranking as their full-data numbers
+     (GBM 0.325 vs. their 0.330 > RF 0.296 vs. 0.299 > GLM 0.206 vs. 0.229 >
+     zone-mean baseline 0.084 vs. 0.092 > global baselines ≈0, which their
+     file excludes "Baseline (global mean)" from for the same reason —
+     a constant prediction gives a degenerate, tie-broken-by-row-order
+     curve close to the diagonal).
+   - **Double lift chart** (`charts/double_lift.py`, C12): two dropdowns,
+     "Model A" / "Model B", options restricted to whatever's currently
+     toggled on in `model-selection-state` (so deselecting a model removes
+     it here too), defaulting to GBM vs. Baseline (zone mean) per user
+     request, falling back to the first two toggled-on models (fixed
+     `MODEL_COLORS` order) if the default pair isn't fully available.
+     Standard double-lift method: rank OOT rows by the ratio of the two
+     models' predictions, bucket into 10 deciles, plot average actual loss
+     alongside both models' average predictions per decile. Fewer than 2
+     models toggled on -> dropdowns disable, chart shows a message.
+   - **Verified via real Dash dispatch** (`app.server.test_client()`
+     posting to `/_dash-update-component`), not just calling the Python
+     functions directly, for all four new callbacks (toggle -> Lorenz
+     curve, toggle -> Gini table, toggle -> dropdown sync + disabled
+     state, dropdown pair -> double lift chart), plus edge cases (0
+     selected, 1 selected, default pair unavailable) — all degrade to
+     empty-state messages, not errors.
+   - **Post-build layout fixes from user review**: (1) two charts moved
+     from stacked to side-by-side (`dbc.Col(width=6)` each); page-level H4
+     title removed (each chart already titles itself). (2) Gini moved out
+     of the Lorenz legend (was `f"{model} (Gini {gini:.3f})"`) into a
+     separate small table below the chart — `compute_ginis()` factored out
+     of `build_lorenz_curve()` in `charts/lorenz_curve.py` so the chart and
+     table share the exact same computation and can't disagree, table
+     sorted descending by Gini (best first), each row prefixed with a
+     `MODEL_COLORS`-colored dot for the same model-identity consistency
+     used elsewhere. (3) The two charts didn't align vertically, since the
+     double lift chart's column has a dropdown row above it that the
+     Lorenz column doesn't — fixed with an invisible spacer
+     (`style={"visibility": "hidden"}`) mirroring that exact dropdown row's
+     markup above the Lorenz chart, rather than a hand-tuned pixel offset
+     that would drift out of sync if the dropdown row's styling ever
+     changes.
+   - `charts/oot_scoreboard.py`'s empty-state figure helper was promoted to
+     `charts/common.py::empty_state_figure()` once a third chart needed it
+     (Lorenz curve, double lift), rather than duplicating it a third time.
 
 ## Status
 

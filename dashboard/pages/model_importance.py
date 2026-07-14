@@ -22,7 +22,7 @@ import dash_bootstrap_components as dbc
 from charts.shap_importance import build_shap_bar_chart, build_shap_beeswarm
 from charts.permutation_importance import build_permutation_importance_chart
 
-dash.register_page(__name__, path="/model/importance", name="Feature Importance", order=3)
+dash.register_page(__name__, path="/model/importance", name="Feature Importance", order=4)
 
 layout = dbc.Container(
     [

@@ -14,6 +14,7 @@ from dash import dcc, html, callback, Input, Output
 import dash_bootstrap_components as dbc
 
 from shared_controls import DEFAULT_FILTER, build_control_row
+from model_controls import DEFAULT_MODELS, build_model_control_row
 
 app = dash.Dash(
     __name__,
@@ -42,8 +43,10 @@ app.layout = dbc.Container(
         dcc.Location(id="url"),
         dcc.Store(id="filter-state", data=DEFAULT_FILTER),
         dcc.Store(id="c2-scale-state", data="raw"),
+        dcc.Store(id="model-selection-state", data=list(DEFAULT_MODELS)),
         _NAV_LINKS,
         html.Div(id="control-row-wrapper", children=[build_control_row()]),
+        html.Div(id="model-control-row-wrapper", children=[build_model_control_row()]),
         dash.page_container,
     ],
     fluid=True,
@@ -52,6 +55,9 @@ app.layout = dbc.Container(
 
 def _is_model_section(pathname: str | None) -> bool:
     return bool(pathname) and pathname.startswith("/model")
+
+
+_MODEL_TOGGLE_PATHS = {"/model/performance", "/model/lift"}
 
 
 @callback(
@@ -66,6 +72,18 @@ def toggle_control_row(pathname):
     # irrelevant content. See AGENTS.md "Hiding the shared control row on
     # the Model section".
     return {"display": "none"} if _is_model_section(pathname) else {}
+
+
+@callback(
+    Output("model-control-row-wrapper", "style"),
+    Input("url", "pathname"),
+)
+def toggle_model_control_row(pathname):
+    # Shown only on the two pages that compare models against each other
+    # (Model Performance, Lorenz/Lift) — not Feature Importance (GBM-only
+    # by design) or Predict (already shows all 4 non-degenerate models
+    # side by side). See PLAN_UI.md "Model-selection toggle".
+    return {} if pathname in _MODEL_TOGGLE_PATHS else {"display": "none"}
 
 
 @callback(

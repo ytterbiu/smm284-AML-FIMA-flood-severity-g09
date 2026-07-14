@@ -9,9 +9,10 @@ Same model order (ascending MAE, i.e. best-first) fixed across all four
 panels, so a model's position can be visually tracked across metrics —
 e.g. RF's mid-pack MAE vs. its much worse D2 is otherwise easy to miss.
 
-Static data (not filtered by the global filter-state — see PLAN_UI.md
-"Model section"), so this is a plain figure-building function, not wired
-to any callback.
+Not filtered by the Pages 1-2 claims filter-state (see PLAN_UI.md "Model
+section") — it IS filtered by the model-selection toggle (PLAN_UI.md
+"Model-selection toggle"), so this is now wired to a callback in
+pages/model_performance.py rather than built once at layout time.
 """
 from __future__ import annotations
 
@@ -20,6 +21,7 @@ import plotly.graph_objects as go
 from plotly.subplots import make_subplots
 
 from model_data import EXPORTS_DIR, MODEL_COLORS
+from charts.common import empty_state_figure
 
 # (csv column, panel title, value format, hover format, zero-line)
 METRICS = [
@@ -31,8 +33,12 @@ METRICS = [
 _POSITIONS = [(1, 1), (1, 2), (2, 1), (2, 2)]
 
 
-def build_oot_scoreboard() -> go.Figure:
+def build_oot_scoreboard(selected_models: list[str] | None = None) -> go.Figure:
     df = pl.read_csv(EXPORTS_DIR / "oot_scoreboard.csv")
+    if selected_models is not None:
+        df = df.filter(pl.col("Model").is_in(selected_models))
+    if df.height == 0:
+        return empty_state_figure("Select at least one model to compare.")
     order = df.sort("MAE ($)")["Model"].to_list()  # best (lowest MAE) first
 
     fig = make_subplots(

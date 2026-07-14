@@ -18,6 +18,7 @@ import json
 import sys
 from pathlib import Path
 
+import numpy as np
 import polars as pl
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
@@ -117,6 +118,65 @@ def predict_baseline(zone_family: str) -> float:
     an unseen zone (shouldn't happen in practice — all 6 known zone_family
     buckets are already in baseline_zone_means.csv)."""
     return get_baseline_means().get(zone_family, BASELINE_GLOBAL_MEAN)
+
+
+# Maps each of the 6 MODEL_COLORS display names to how to score it — the
+# three fitted models via get_model()/predict(), the three baselines via
+# their own trivial rule. Used by the Lorenz/lift page (charts/lorenz_curve.py,
+# charts/double_lift.py) to treat all 6 uniformly.
+_FITTED_MODEL_KEYS = {
+    "GBM (gamma loss)": "gbm",
+    "GLM (Gamma, log-link)": "glm",
+    "RF (bagging, smeared log target)": "rf",
+}
+
+_baseline_global_median: float | None = None
+
+
+def get_baseline_global_median() -> float:
+    """The global-median baseline: not exported by the teammate (metadata.json
+    only gives the global *mean*, 49811.57, for the zone-mean baseline's unseen-
+    zone fallback), but BE_notes.ipynb's own scoreboard includes a "Baseline
+    (global median)" row (oot_scoreboard.csv), so it must exist as a concept.
+    Computed here the same way the mean baseline was: the median of TARGET on
+    our own training window (yearOfLoss < OOT_CUTOFF_YEAR), not the OOT window
+    itself (that would leak test data into a "baseline")."""
+    global _baseline_global_median
+    if _baseline_global_median is None:
+        train = get_model_df().filter(pl.col("yearOfLoss") < OOT_CUTOFF_YEAR)
+        _baseline_global_median = float(train[TARGET].median())
+    return _baseline_global_median
+
+
+def get_predictions(model_name: str, df: pl.DataFrame) -> np.ndarray:
+    """Predictions for any of the 6 MODEL_COLORS display names, aligned to
+    df's row order. Fitted models go through predict() (clipped at coverage,
+    same as the rest of the dashboard); baselines apply their own trivial
+    rule row-by-row."""
+    if model_name in _FITTED_MODEL_KEYS:
+        X = df.select(NUMERIC + CATEG)
+        return np.asarray(predict(_FITTED_MODEL_KEYS[model_name], X))
+    if model_name == "Baseline (zone mean)":
+        means = get_baseline_means()
+        return np.array([means.get(z, BASELINE_GLOBAL_MEAN) for z in df["zone_family"].to_list()])
+    if model_name == "Baseline (global mean)":
+        return np.full(df.height, BASELINE_GLOBAL_MEAN)
+    if model_name == "Baseline (global median)":
+        return np.full(df.height, get_baseline_global_median())
+    raise ValueError(f"Unknown model: {model_name!r}")
+
+
+_oot_predictions_cache: dict[str, np.ndarray] = {}
+
+
+def get_oot_predictions(model_name: str) -> np.ndarray:
+    """get_predictions(model_name, get_oot_df()), cached per model — the
+    Lorenz/lift page always scores against the same fixed OOT data, so this
+    avoids re-running model.predict() every time the model-selection toggle
+    changes which models are shown."""
+    if model_name not in _oot_predictions_cache:
+        _oot_predictions_cache[model_name] = get_predictions(model_name, get_oot_df())
+    return _oot_predictions_cache[model_name]
 
 
 if __name__ == "__main__":
