@@ -29,6 +29,7 @@ dashboard/
 ├── data.py                  # Loads and caches data/processed/claims_{mode}.parquet at import time
 ├── model_data.py            # (planned) Own load path for the Model section's wide NUMERIC/CATEG
 │                             # feature set + TARGET — do not grow data.py's DASHBOARD_COLUMNS for this.
+│                             # Also caches the loaded models (via dashboard_support.load_model()).
 ├── pages/
 │   ├── overview.py          # Page 1: Flood Payout Overview (path="/"). Exposes build_kpi_cards(filter_state).
 │   ├── under_insurance.py   # Page 2: Under-Insurance (path="/under-insurance"). Same build_kpi_cards(...) contract.
@@ -47,13 +48,34 @@ dashboard/
 ```
 
 **Model section (`/model/*`) is a planned 4-page group — see `PLAN_UI.md`
-"Model section (Pages 3+)"** for the full data contract (what's blocked on
-Ben vs. buildable now) before writing any of those page modules.
+"Model section (Pages 3+)"** for the full data contract, now **resolved**
+(a teammate exported the full artifact bundle), before writing any of
+those page modules.
 
 Data files (Parquet) live at `../data/processed/claims_{mode}.parquet`
 relative to `dashboard/` — output of `src/data/pipeline.py` (see root
 `PLAN_UI.md` Phase 1). That directory is gitignored; nothing under it is
 committed.
+
+### Model artifacts (`exports/dashboard/`)
+- **Always load models via `dashboard_support.load_model(path)`**, never a
+  bare `joblib.load()` — the RF model is wrapped in a custom
+  `SmearedLogTargetRegressor` class pickled from inside the notebook, and
+  `load_model()` registers it (and `CoverageClippedRegressor`) under
+  `__main__` before unpickling, which RF specifically requires. Harmless
+  no-op for GLM/GBM, so use it uniformly for all three — don't branch
+  loading logic per model.
+- **Always apply `dashboard_support.clip_at_coverage(pred, X)` after
+  `.predict()`** — the coverage-cap business rule is not baked into the
+  pipelines themselves.
+- `model_rf.joblib` is **gitignored** (too large) and shared manually
+  between teammates, same situation as `data/raw/` — anyone missing it
+  needs a documented manual-placement step (see `dashboard/README.md`),
+  and its integrity can be checked against `exports/dashboard/checksums.txt`
+  (SHA-256).
+- See `exports/dashboard/metadata.json` for the full contract (exact
+  `input_schema`, `primary_model`, business rules, package versions used
+  to create the artifacts) before writing `model_data.py`.
 
 ---
 

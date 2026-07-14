@@ -473,38 +473,39 @@ in the app shell, e.g. `pathname.startswith("/model")`), same underlying
 mechanism as the page-aware `kpi-row`, just hiding rather than swapping
 content.
 
-**Data contract — what's needed from Ben, and what's buildable now.**
-Checked `models/` directly (as of his "Updates BE notes with new models"
-commit, merged into `dev_ui`): the new baselines/random-forest results
-exist only as in-notebook output — no new file was added. `tuned_params.json`
-still only has `glm`/`gbm` keys; `cv_results_*_oot_{glm,gbm}.csv` are raw
-`GridSearchCV.cv_results_` dumps (candidate-level CV MAE only — no RMSE/R²/
-D², no baseline, no random forest, no held-out OOT test scores). So:
+**Data contract — RESOLVED.** A teammate exported a full artifact bundle to
+`exports/dashboard/` (`model_glm.joblib`/`model_gbm.joblib` committed;
+`model_rf.joblib` gitignored — too large, shared manually, integrity
+verified via `checksums.txt`'s SHA-256, matches exactly). Checked every
+file directly and test-loaded/predicted all three models on real sample
+rows before marking anything unblocked:
 
-| Sub-page | Needs from Ben | Status |
-|---|---|---|
-| Model performance | An OOT scoreboard export (MAE/RMSE/R²/D² per model — baseline/GLM/GBM/RF), likely just `.to_csv()` on his existing results table | **Blocked** |
-| Feature importance / SHAP | SHAP values + feature names (or at minimum a "mean \|SHAP\| by feature" table) for the primary model | **Blocked** |
-| Lorenz curve / double lift | Just the fitted model artifact (`joblib.dump`) — predictions against our own OOT-processed data can be computed ourselves once that exists | **Blocked** |
-| Feature input + prediction | Fitted model artifact(s) — GLM/GBM/RF; the trivial zone-mean baseline doesn't need one, easy to reimplement directly | **Blocked** |
+| Sub-page | Needed | Delivered as | Status |
+|---|---|---|---|
+| Model performance | OOT scoreboard (MAE/RMSE/R²/D²) | `oot_scoreboard.csv` — 5 models: 3 baselines + GLM + RF + GBM | ✅ **Unblocked** |
+| Feature importance / SHAP | SHAP values + feature names | `shap_mean_abs_by_feature.csv` (bar chart) **+** `shap_sample_raw_features.parquet` (2000×15) **+** `shap_values_oot_sample.npz` (`shap_values`, `X_transformed`, `feature_names`, `base_value`, `row_index`) — enough for a full beeswarm plot, not just a bar chart | ✅ **Unblocked**, richer than originally scoped |
+| Lorenz curve / double lift | Fitted model artifact | `model_{glm,gbm,rf}.joblib`, all three loaded + test-predicted successfully | ✅ **Unblocked** — compute ourselves against our own OOT-filtered `claims_{mode}.parquet` (verified: all 14 `NUMERIC`+`CATEG` columns already present there, no re-run of Phase 1 needed). Bonus: `oot_scoreboard_insurance.csv` already has a per-model **Gini** column as a sanity-check reference point. |
+| Feature input + prediction | Fitted model artifact(s) | Same three `.joblib` files + `baseline_zone_means.csv` (trivial baseline lookup, no artifact needed) | ✅ **Unblocked** |
 
-Everything is blocked on Ben in some way *except* one thing:
-
-**Buildable right now, no new data needed**: the "tuning surface is flat"
-chart from `BE_notes.ipynb` §12 (candidate rank vs. CV MAE with error bars,
-from the existing `cv_results_*_oot_{glm,gbm}.csv` + `tuned_params.json`) —
-recreates the finding already summarized in `ANALYSIS_SUMMARY.md` §7 (top-5
-GBM candidates within $120 of each other vs. ~$12,000 fold-to-fold std).
-Goes on the **Model performance** page as a first, real chart while the
-cross-model OOT scoreboard stays blocked.
-
-**Also buildable now**: the feature-input form's *layout* (not live
-prediction) on the **predict** page — the exact `NUMERIC`/`CATEG` feature
-list is already known (`BE_notes.ipynb` §7, 6 numeric + 8 categorical, see
-below), so the input widgets (dropdowns for categoricals, number inputs for
-numerics) can be laid out now, with the "Predict" button disabled and a
-"model not available yet" message, swapped for real inference once Ben's
-artifact lands.
+**Artifacts and how to use them** (`exports/dashboard/`):
+- `metadata.json` — the full contract: exact `input_schema` (matches our
+  known `NUMERIC`/`CATEG` below byte-for-byte), model descriptions,
+  `primary_model: "gbm"`, `prediction_business_rule`, `baseline_rule`,
+  `random_state: 9`. Versions (`sklearn`/`numpy`/`pandas`/`shap` all pinned
+  identically to our own `.venv` — only the Python patch version differs,
+  which doesn't affect pickle compatibility) — checked, no environment risk.
+- `dashboard_support.py` — **always load models via its `load_model(path)`**,
+  never bare `joblib.load()`. The RF model is wrapped in a custom
+  `SmearedLogTargetRegressor` (Duan's smearing correction) pickled from
+  inside the notebook — `load_model()` registers the notebook-defined
+  classes under `__main__` before unpickling, which RF specifically
+  requires; harmless no-op for GLM/GBM, so use it uniformly for all three
+  rather than branching per model. Also exposes `clip_at_coverage(pred, X)`
+  — the coverage-cap business rule is applied *manually after* `.predict()`,
+  not baked into the pipelines themselves; always call it.
+- `oot_scoreboard.csv` / `oot_scoreboard_insurance.csv` / `shap_*` /
+  `baseline_zone_means.csv` — plain CSV/parquet/npz, load directly with
+  Polars/numpy.
 
 ```python
 NUMERIC = ["totalBuildingInsuranceCoverage", "totalContentsInsuranceCoverage",
@@ -518,24 +519,81 @@ CATEG = ["zone_family", "occupancy_class", "state", "floors_cat",
 **Data loading**: this section needs a much wider column set than Pages
 1–2's 7-column `DASHBOARD_COLUMNS` (all of `NUMERIC`/`CATEG` above, plus
 `TARGET` for the Lorenz/lift charts' actuals). Gets its **own load path**
-(e.g. `dashboard/model_data.py`) rather than growing the shared
-`get_df()`/`DASHBOARD_COLUMNS` further — confirmed in `AGENTS.md` already,
-still the right call now that there's a concrete feature list to load.
+(`dashboard/model_data.py`) rather than growing the shared
+`get_df()`/`DASHBOARD_COLUMNS` further — confirmed all 14 columns already
+exist in `claims_sample.parquet`, so this is just a new pushdown column
+list, not a pipeline change.
+
+**Logistics note**: `model_rf.joblib` is gitignored and was shared
+manually (same situation as `data/raw/`) — needs a documented manual-
+placement step for teammates who don't have it (README/`AGENTS.md`), same
+pattern as the raw FEMA download.
 
 **Build order**
-1. Nav/routing: add the 4 `/model/*` pages (placeholder layouts), hide the
-   shared control row across the section.
-2. **Model performance page**: tuning-diagnostics chart from existing
-   `cv_results_*`/`tuned_params.json` (buildable now) + a placeholder
-   panel for the cross-model OOT scoreboard (blocked).
-3. **Predict page**: static input-form layout from the known
-   `NUMERIC`/`CATEG` list (buildable now), predict button disabled/
-   placeholder until Ben's model artifact exists.
-4. Feature importance/SHAP and Lorenz/lift pages: placeholder layouts only
-   for now — genuinely blocked, nothing to build yet beyond the shell.
-5. Once Ben exports the OOT scoreboard + model artifact (+ ideally SHAP
-   values): wire up live predictions, the real scoreboard, SHAP plots, and
-   compute Lorenz/lift curves ourselves against our own OOT-processed data.
+1. [x] Nav/routing: added the 4 `/model/*` pages (`pages/model_{performance,
+   importance,lift,predict}.py`, placeholder layouts, explicit `order=2..5`
+   — also added `order=0/1` to the existing two pages for deterministic
+   nav ordering), and hid the shared control row across the section via a
+   `control-row-wrapper` div + pathname-keyed callback in `app.py`.
+   Verified: all 6 pages register in the right order, control row/KPI row
+   correctly hide on `/model/*` and stay visible/unaffected on `/` and
+   `/under-insurance`.
+2. [x] `dashboard/model_data.py` — `get_model_df()`/`get_oot_df()` (wide
+   feature set + `TARGET`, `NUMERIC`/`CATEG`/`TARGET` derived from
+   `metadata.json` rather than duplicated), `get_model(name)` (cached,
+   via `dashboard_support.load_model()`), `predict(name, X)` (clipped at
+   coverage), `predict_baseline(zone_family)`. Verified: 22,533 rows
+   loaded, 2,445 in the OOT window, all 3 models load, and — the real
+   compatibility test — predictions run correctly against rows from *our
+   own* processed parquet (not just the teammate's isolated SHAP sample),
+   with GBM/RF visibly more differentiated than GLM against actuals,
+   matching the existing narrative.
+3. **Model performance page**:
+   - [x] `charts/oot_scoreboard.py` (C6) — small multiples, one horizontal-
+     bar panel per metric (MAE/RMSE/D²/R², in that reading order), same
+     model order fixed across all four panels (ascending MAE) so a
+     model's position is trackable across metrics. Fixed identity colors
+     per model (`MODEL_COLORS`, GBM anchored to palette slot 1 as
+     `metadata.json`'s `primary_model` — reused across future Model-section
+     pages, same convention as Page 2's `STATUS_COLORS`). Deliberately no
+     on-chart text ranking the metrics (e.g. no "D² is the fair one"
+     annotation) — panel order/position only, data shown for all four.
+     Genuinely useful finding this surfaced: RF's D² (−0.469) is far worse
+     than its MAE/R² rank would suggest — worth keeping visible now that
+     it's built rather than only in a table.
+   - [ ] Tuning-diagnostics chart from `cv_results_*`/`tuned_params.json`
+     (the one thing buildable pre-export) as a secondary panel — not done
+     yet, same page.
+4. **Feature importance / SHAP page**: bar chart from
+   `shap_mean_abs_by_feature.csv`, plus a beeswarm-style plot built from
+   `shap_values_oot_sample.npz` (`shap_values` + `X_transformed` +
+   `feature_names`) — reimplemented in Plotly (`go.Scatter`, jittered by
+   SHAP value, colored by feature value), not the `shap` library's own
+   matplotlib plot, for interactivity/theme consistency.
+5. [x] **Predict page** (built ahead of pages 3's tuning chart and page 4,
+   at the user's request) — `pages/model_predict.py`: 14-field input form
+   (6 `NUMERIC` number inputs + 8 `CATEG` dropdowns), options/defaults
+   derived dynamically from `model_data.get_model_df()` (not hardcoded —
+   `state` restricted to the 50+DC via `US_STATES`, `zone_family` ordered
+   via `ZONE_ORDER`, numeric-coded fields like `floors_cat` sorted
+   numerically with "missing" last). Shows all 4 models side by side
+   (Baseline/GLM/RF/GBM), per the original "multiple models" ask — result
+   cards (reusing `kpi-card` styling) + `charts/predict_comparison.py`
+   (C7, same `MODEL_COLORS` as the performance page's C6 — moved that
+   constant into `model_data.py` as the true shared location once a second
+   chart needed it). Verified: baseline prediction matches
+   `baseline_zone_means.csv` exactly; a real finding surfaced during
+   testing — at the default (median/mode-of-every-column) starting values,
+   RF predicts noticeably higher ($142K) than GLM/Baseline/GBM (~$55-63K).
+   Confirmed this isn't a bug (real historical rows tested earlier had
+   RF/GBM tracking closely) — it's the log1p + Duan's-smearing
+   back-transform amplifying a synthetic, independently-median/mode'd
+   combination that may not resemble any real observed property.
+6. **Lorenz / double lift page**: filter our own `claims_{mode}.parquet` to
+   `yearOfLoss >= 2020` (the OOT window per `metadata.json`), score with
+   all three models via `model_data`, compute Lorenz curves (cumulative %
+   loss vs. cumulative % policies, ranked by predicted severity) and a
+   double lift chart (GBM vs. RF, or vs. baseline) ourselves.
 
 ## Status
 
@@ -578,14 +636,18 @@ still the right call now that there's a concrete feature list to load.
       not this). Fixed by giving each page its own chart-click callback
       instead — see `AGENTS.md` "Callbacks". Not yet done: Build Order
       step 6 (rerun against `claims_full.parquet`).
-- [~] Model section (Pages 3+) — expanded from a single "Page 3" into 4
-      sub-pages (performance/importance/lift/predict) at the user's
-      request, since the model story needs genuinely different outputs on
-      each. Checked `models/` after Ben's latest commit: new
-      baselines/random-forest results aren't exported anywhere (only
-      in-notebook output) — data contract for what's needed from Ben
-      written up in full above. Everything is blocked except the
-      tuning-diagnostics chart (buildable now from existing
-      `cv_results_*`/`tuned_params.json`) and the predict page's static
-      input-form layout (buildable now from the known `NUMERIC`/`CATEG`
-      list). Not yet built — plan only so far.
+- [x] Model section data contract — **fully resolved.** A teammate exported
+      a complete artifact bundle to `exports/dashboard/`
+      (`model_{glm,gbm,rf}.joblib`, `oot_scoreboard.csv`,
+      `oot_scoreboard_insurance.csv`, `shap_mean_abs_by_feature.csv`,
+      `shap_sample_raw_features.parquet`, `shap_values_oot_sample.npz`,
+      `baseline_zone_means.csv`, `metadata.json`, `dashboard_support.py`).
+      Verified directly, not just inspected: all 3 models load (via
+      `dashboard_support.load_model()` — required for RF's custom
+      `SmearedLogTargetRegressor` class) and predict correctly on real
+      sample rows; `model_rf.joblib`'s SHA-256 matches `checksums.txt`
+      exactly; package versions match our `.venv` (sklearn/numpy/pandas/
+      shap identical, only Python patch version differs — no risk); all 14
+      `NUMERIC`+`CATEG` columns already exist in our own processed
+      parquet. All 4 sub-pages unblocked — see full mapping table above.
+      Not yet built — plan/build-order written, no page code yet.

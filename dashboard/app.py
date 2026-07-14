@@ -43,11 +43,29 @@ app.layout = dbc.Container(
         dcc.Store(id="filter-state", data=DEFAULT_FILTER),
         dcc.Store(id="c2-scale-state", data="raw"),
         _NAV_LINKS,
-        build_control_row(),
+        html.Div(id="control-row-wrapper", children=[build_control_row()]),
         dash.page_container,
     ],
     fluid=True,
 )
+
+
+def _is_model_section(pathname: str | None) -> bool:
+    return bool(pathname) and pathname.startswith("/model")
+
+
+@callback(
+    Output("control-row-wrapper", "style"),
+    Input("url", "pathname"),
+)
+def toggle_control_row(pathname):
+    # The Model section (/model/*) doesn't filter the claims dataset at all
+    # — it shows properties of a fitted model, not a filterable subset — so
+    # the shared control row (and, via update_kpi_row below, the KPI cards
+    # nested inside it) is hidden entirely rather than shown with stale/
+    # irrelevant content. See AGENTS.md "Hiding the shared control row on
+    # the Model section".
+    return {"display": "none"} if _is_model_section(pathname) else {}
 
 
 @callback(
@@ -58,7 +76,10 @@ app.layout = dbc.Container(
 def update_kpi_row(pathname, filter_state):
     # Each page module exposes its own build_kpi_cards(filter_state) -> list
     # of dbc.Card components — content AND count vary per page (2 on "/",
-    # 4 on "/under-insurance").
+    # 4 on "/under-insurance"). Model section pages have none (row is
+    # hidden entirely by toggle_control_row above).
+    if _is_model_section(pathname):
+        return []
     if pathname == "/under-insurance":
         return under_insurance.build_kpi_cards(filter_state)
     return overview.build_kpi_cards(filter_state)

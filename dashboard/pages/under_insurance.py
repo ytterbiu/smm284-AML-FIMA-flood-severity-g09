@@ -23,7 +23,7 @@ from charts.status_bands import compute_ratio_status
 from charts.coverage_histogram import build_coverage_histogram
 from charts.under_insurance_by_zone import build_zone_status_bars
 
-dash.register_page(__name__, path="/under-insurance", name="Under-Insurance")
+dash.register_page(__name__, path="/under-insurance", name="Under-Insurance", order=1)
 
 
 def _placeholder_figure(title: str) -> go.Figure:

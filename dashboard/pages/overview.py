@@ -24,7 +24,7 @@ from charts.choropleth import build_choropleth
 from charts.histogram import build_histogram
 from charts.boxplots import build_zone_boxplots
 
-dash.register_page(__name__, path="/", name="Flood Payout Overview")
+dash.register_page(__name__, path="/", name="Flood Payout Overview", order=0)
 
 
 def _placeholder_figure(title: str) -> go.Figure:
