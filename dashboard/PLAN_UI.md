@@ -564,12 +564,71 @@ pattern as the raw FEMA download.
    - [ ] Tuning-diagnostics chart from `cv_results_*`/`tuned_params.json`
      (the one thing buildable pre-export) as a secondary panel — not done
      yet, same page.
-4. **Feature importance / SHAP page**: bar chart from
-   `shap_mean_abs_by_feature.csv`, plus a beeswarm-style plot built from
-   `shap_values_oot_sample.npz` (`shap_values` + `X_transformed` +
-   `feature_names`) — reimplemented in Plotly (`go.Scatter`, jittered by
-   SHAP value, colored by feature value), not the `shap` library's own
-   matplotlib plot, for interactivity/theme consistency.
+4. [x] **Feature importance / SHAP page** — GBM-only throughout (confirmed
+   directly from the notebook: cell 85 computes SHAP against `best_model`
+   exclusively, and `shap.TreeExplainer` is tree-model-only anyway; no
+   GLM/RF equivalent exists to show). Three charts:
+   - `charts/shap_importance.py` — C8 (bar chart, `shap_mean_abs_by_
+     feature.csv`) + C9 (beeswarm, reimplemented in Plotly from
+     `shap_values_oot_sample.npz`'s `shap_values`/`X_transformed`/
+     `feature_names` — the `shap` library was only needed to *compute*
+     these, already done by the teammate; no `shap`-library plotting code
+     runs at dashboard runtime). Feature names cleaned of the
+     `money__`/`cat__`/`num__` ColumnTransformer prefix for readability.
+   - `charts/permutation_importance.py` — C10, genuinely new: not exported
+     by the teammate (checked `exports/dashboard/` — no such file), but
+     fully replicable ourselves, since `sklearn.inspection.
+     permutation_importance` is model-agnostic (no custom-class dependency
+     like RF's smearing wrapper) and works directly against
+     `model_gbm.joblib` + our own OOT data. Dual-scored (MAE + gamma
+     deviance, matching the notebook's own framing), on the raw 14
+     features (not the ~99 one-hot-expanded ones SHAP uses), deliberately
+     unclipped to match the notebook's choice. Computed once, cached
+     (~7s one-time cost, not per page view) — verified numbers, including
+     a real finding: `state` shows *negative* importance on our
+     ~2,445-row OOT sample (shuffling it slightly improves MAE) — read as
+     sampling noise given the small sample, not evidence `state` is
+     harmful; also a useful cross-check against SHAP's per-state findings
+     (which look at individual one-hot state columns, a finer-grained
+     notion of importance than shuffling the whole feature at once).
+   - Startup cost note: this page's layout builds the permutation
+     importance chart eagerly (not behind a callback), adding ~7s to app
+     import time (~11s total vs. near-instant before) — one-time per app
+     run, cached after.
+   - Post-build fixes from user review: (1) beeswarm colorscale switched
+     from the palette's sequential blue ramp to `shap` library's own
+     `#008bfb`→`#ff0051` (blue→red) — a deliberate, scoped exception to
+     the usual sequential-hue convention, since matching this specific
+     well-known external convention was requested. (2) Permutation
+     importance chart had a real ordering bug: copied `oot_scoreboard.py`'s
+     "sort ascending + `autorange=reversed`" recipe verbatim, but that
+     recipe's correctness there relied on ascending-MAE-happens-to-mean-
+     best-first — the opposite semantic holds for `mae_increase` (higher =
+     more important), so it needed a descending sort instead. Fixed and
+     verified the array order directly. (4) SHAP bar chart recolored to
+     match `shap` library's own high-value color (`#ff0051`) and given
+     value labels, per a reference screenshot; both charts' "outside" text
+     labels were getting clipped/overlapping error-bar whiskers —
+     fixed via explicit axis-range padding (bar chart) and manually-placed
+     annotations positioned past the whisker tip, not `textposition=
+     "outside"` (permutation importance panels).
+   - **Full-data scalability, addressed proactively before it was hit**:
+     `permutation_importance`'s cost is ~linear in row count (one
+     `model.predict()` per feature × repeat). Sample-mode OOT data
+     (~2,445 rows) never approached a problem, but full-mode OOT data
+     (~213,746 rows, per the notebook's own figures) would take an
+     estimated **~10 minutes** uncapped — computed eagerly at page load,
+     that's not acceptable. Fix: capped at `MAX_ROWS = 50_000`, directly
+     mirroring `BE_notes.ipynb` cell 60's own `SUB = min(50_000,
+     len(X_test))` — Ben hit the identical cost concern and already solved
+     it the same way; this was just an omission on our side since
+     sample-mode data never got close to the cap. Verified the cap is a
+     true no-op at current scale (identical result, ~7s, unchanged). Even
+     capped, full mode would still cost ~1-2 minutes at first access
+     (50K rows vs. today's 2,445) — worth revisiting whether to move this
+     from eager (built into the page layout) to lazy (behind a callback,
+     triggered on page visit with a loading spinner) once full mode is
+     actually used, so it doesn't block the rest of the app's startup.
 5. [x] **Predict page** (built ahead of pages 3's tuning chart and page 4,
    at the user's request) — `pages/model_predict.py`: 14-field input form
    (6 `NUMERIC` number inputs + 8 `CATEG` dropdowns), options/defaults

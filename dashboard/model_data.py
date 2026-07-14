@@ -42,6 +42,11 @@ OOT_CUTOFF_YEAR = 2020  # metadata["oot_test_window"] == "yearOfLoss >= 2020"
 # From metadata.json's "baseline_rule": unseen zone_family -> this global mean.
 BASELINE_GLOBAL_MEAN = 49811.57
 
+# For replicating the notebook's permutation-importance gamma-deviance scorer
+# (mean_gamma_deviance floors predictions at this value — matches
+# BE_notes.ipynb's DEV_FLOOR exactly, not a separately-chosen constant).
+GAMMA_DEV_FLOOR: float = METADATA["gamma_deviance_pred_floor"]
+
 # Fixed identity color per model, not by rank (see dataviz skill: color
 # follows the entity, never its rank). GBM anchored to the palette's first
 # slot since it's PRIMARY_MODEL and recurs across the whole Model section
