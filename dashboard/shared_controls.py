@@ -24,7 +24,7 @@ DEFAULT_FILTER: dict = {
     "year_range": [YEAR_MIN, YEAR_MAX],
     "stat": "median",
     "state": None,
-    "zone_family": None,
+    "zone_family": [],  # multi-select: plain click toggles a zone in/out of this list
 }
 
 # Only label the two ends — marks at every 5 years overlapped and were
@@ -168,7 +168,9 @@ def update_stat_buttons(filter_state):
 # Labels for the active-filter chips that are simple None-means-unset
 # fields. year_range is handled separately below since it's never None —
 # its "unset" state is the full [YEAR_MIN, YEAR_MAX] range instead.
-_CHIP_LABELS = {"state": "State", "zone_family": "Zone"}
+# zone_family is handled separately too — it's a list (multi-select), so it
+# gets one chip per selected zone rather than a single "field: value" chip.
+_CHIP_LABELS = {"state": "State"}
 
 
 def _year_range_label(year_range: list[int]) -> str | None:
@@ -211,6 +213,21 @@ def update_active_filters_display(filter_state):
                 )
             )
 
+    # zone_family: one chip per selected zone (not one "Zone: A, B, C" chip),
+    # so a single click removes just that zone — key encodes which one via
+    # "zone_family::<zone>", parsed back out in remove_filter_via_chip below.
+    for zone in filter_state.get("zone_family") or []:
+        chips.append(
+            html.Span(
+                f"Zone: {zone} ×",
+                id={"type": "filter-chip", "key": f"zone_family::{zone}"},
+                n_clicks=0,
+                className="badge bg-primary me-1",
+                title="Click to remove this filter",
+                style={"cursor": "pointer"},
+            )
+        )
+
     if len(chips) == 1:  # only the "Filters:" label, nothing active
         return [html.Span("No filters active", className="text-muted small")]
     return chips
@@ -230,5 +247,11 @@ def remove_filter_via_chip(_n_clicks_list, current):
         return dash.no_update
     key = ctx.triggered_id["key"]
     state = dict(current)
-    state[key] = [YEAR_MIN, YEAR_MAX] if key == "year_range" else None
+    if key == "year_range":
+        state["year_range"] = [YEAR_MIN, YEAR_MAX]
+    elif key.startswith("zone_family::"):
+        zone = key.split("zone_family::", 1)[1]
+        state["zone_family"] = [z for z in (state.get("zone_family") or []) if z != zone]
+    else:
+        state[key] = None
     return state

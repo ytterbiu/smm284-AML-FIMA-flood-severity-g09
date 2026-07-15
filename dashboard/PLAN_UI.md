@@ -213,6 +213,28 @@ Clicking an already-selected state/zone again clears that filter (toggle
 behaviour, per spec). **Reset clears all four fields back to defaults,
 including `stat` → `"median"`** (confirmed).
 
+**`zone_family` upgraded to multi-select, per user request** (originally
+single-select like `state`, above). Plain click now toggles a zone in/out
+of a list (`zone_family: []` is the new "no filter" default, replacing
+`null`) rather than shift+click — Dash's `clickData` payload doesn't carry
+keyboard-modifier state (no `shiftKey`), so detecting shift would need a
+custom clientside JS callback wired to the graph's native DOM events;
+plain-click-toggles-membership gets the same outcome with zero new
+mechanism. Deliberately applies to both C3 (Page 1) and C5 (Page 2), since
+`zone_family` is one shared field in `filter-state` — confirmed as wanted,
+not an accidental side effect. `state` remains single-select (unchanged).
+Chip display changed to match: one "Zone: X ×" chip per selected zone
+(not one combined chip), each independently removable — chip `key` encodes
+which zone via `"zone_family::<zone>"`, parsed back out in
+`remove_filter_via_chip`. `apply_filters(zone_family=...)` now takes a list
+and filters via `.is_in(...)`; `build_zone_boxplots`/`build_zone_status_bars`
+take `selected_zones` (list) and highlight-by-membership instead of
+highlight-by-equality. Verified via real Dash dispatch
+(`app.server.test_client()`): click A -> click V (different zone, appends)
+-> click A again (toggles off, leaves V) produces the expected
+`zone_family` list at each step; both charts' opacity arrays correctly show
+full opacity for every currently-selected zone.
+
 **Callback topology**
 ```
 year-range-slider ──┐
@@ -326,7 +348,7 @@ dashboard/
 ├── charts/
 │   ├── choropleth.py       # build_choropleth(df, stat, selected_state) -> go.Figure   (C1)
 │   ├── histogram.py        # build_histogram(df, log=False) -> go.Figure               (C2)
-│   └── boxplots.py         # build_zone_boxplots(df, stat, selected_zone) -> go.Figure  (C3)
+│   └── boxplots.py         # build_zone_boxplots(df, stat, selected_zones) -> go.Figure (C3)
 ├── pages/
 │   └── overview.py         # Page 1 layout + callbacks
 └── assets/

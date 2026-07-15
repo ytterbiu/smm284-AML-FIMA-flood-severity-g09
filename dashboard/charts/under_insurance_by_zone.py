@@ -2,9 +2,9 @@
 
 Upgrades BE_notes.ipynb section 14's single-metric version (share under 80%
 only) to a full 3-segment breakdown, same status colors as C4. Clickable
-like C3: clicking a zone's bar sets the shared zone_family filter (dims
-non-selected zones, never filters itself — see PLAN_UI.md "never filter
-yourself" rule).
+like C3: clicking a zone's bar toggles it in/out of the shared zone_family
+filter (multi-select — dims non-selected zones, never filters itself —
+see PLAN_UI.md "never filter yourself" rule).
 """
 from __future__ import annotations
 
@@ -29,7 +29,7 @@ def _empty_figure(text: str) -> go.Figure:
     return fig
 
 
-def build_zone_status_bars(df: pl.DataFrame, selected_zone: str | None = None) -> go.Figure:
+def build_zone_status_bars(df: pl.DataFrame, selected_zones: list[str] | None = None) -> go.Figure:
     """df: filtered by year/state (NOT by zone_family; all zones always shown)."""
     valid = compute_ratio_status(df)
     if valid.height == 0:
@@ -43,7 +43,7 @@ def build_zone_status_bars(df: pl.DataFrame, selected_zone: str | None = None) -
     zone_totals = {
         z: counts.filter(pl.col("zone_family") == z)["n"].sum() for z in zones_present
     }
-    opacities = [1.0 if (selected_zone is None or z == selected_zone) else DIMMED_OPACITY for z in zones_present]
+    opacities = [1.0 if (not selected_zones or z in selected_zones) else DIMMED_OPACITY for z in zones_present]
 
     fig = go.Figure()
     for status in STATUS_ORDER:

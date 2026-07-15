@@ -192,7 +192,12 @@ def update_filter_state_from_page1_charts(map_click, zone_click, current):
     elif triggered == "zone-boxplots":
         if zone_click:
             clicked = zone_click["points"][0]["x"]
-            state["zone_family"] = None if state.get("zone_family") == clicked else clicked
+            zones = list(state.get("zone_family") or [])
+            if clicked in zones:
+                zones.remove(clicked)
+            else:
+                zones.append(clicked)
+            state["zone_family"] = zones
 
     return state
 
@@ -243,4 +248,4 @@ def update_histogram(filter_state, scale):
 def update_boxplots(filter_state):
     df = get_df()
     df = apply_filters(df, year_range=filter_state["year_range"], state=filter_state.get("state"))
-    return build_zone_boxplots(df, stat=filter_state["stat"], selected_zone=filter_state.get("zone_family"))
+    return build_zone_boxplots(df, stat=filter_state["stat"], selected_zones=filter_state.get("zone_family"))

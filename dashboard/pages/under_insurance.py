@@ -141,7 +141,12 @@ def update_filter_state_from_page2_charts(zone_click, current):
         return dash.no_update
     clicked = zone_click["points"][0]["x"]
     state = dict(current)
-    state["zone_family"] = None if state.get("zone_family") == clicked else clicked
+    zones = list(state.get("zone_family") or [])
+    if clicked in zones:
+        zones.remove(clicked)
+    else:
+        zones.append(clicked)
+    state["zone_family"] = zones
     return state
 
 
@@ -167,4 +172,4 @@ def update_coverage_histogram(filter_state):
 def update_zone_status_bars(filter_state):
     df = get_df()
     df = apply_filters(df, year_range=filter_state["year_range"], state=filter_state.get("state"))
-    return build_zone_status_bars(df, selected_zone=filter_state.get("zone_family"))
+    return build_zone_status_bars(df, selected_zones=filter_state.get("zone_family"))

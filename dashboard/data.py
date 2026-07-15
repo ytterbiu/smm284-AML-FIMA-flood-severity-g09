@@ -109,20 +109,23 @@ def apply_filters(
     df: pl.DataFrame,
     year_range: tuple[int, int] | list[int] | None = None,
     state: str | None = None,
-    zone_family: str | None = None,
+    zone_family: list[str] | None = None,
 ) -> pl.DataFrame:
     """Apply zero or more filters to the DataFrame in-memory.
 
     year_range: (lo, hi) inclusive on both ends (Polars' is_between default),
     e.g. (2000, 2000) for a single year. None means no year filter at all.
+
+    zone_family: multi-select (plain click toggles a zone in/out on Pages
+    1-2's charts) — a list of zone names to keep, or None/[] for no filter.
     """
     if year_range is not None:
         lo, hi = year_range
         df = df.filter(pl.col("yearOfLoss").is_between(lo, hi))
     if state is not None:
         df = df.filter(pl.col("state") == state)
-    if zone_family is not None:
-        df = df.filter(pl.col("zone_family") == zone_family)
+    if zone_family:
+        df = df.filter(pl.col("zone_family").is_in(zone_family))
     return df
 
 

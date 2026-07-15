@@ -40,9 +40,9 @@ dashboard/
 ├── charts/
 │   ├── choropleth.py            # build_choropleth(df, stat, selected_state) -> go.Figure      (C1)
 │   ├── histogram.py             # build_histogram(df, log=False) -> go.Figure                  (C2)
-│   ├── boxplots.py              # build_zone_boxplots(df, stat, selected_zone) -> go.Figure     (C3)
+│   ├── boxplots.py              # build_zone_boxplots(df, stat, selected_zones) -> go.Figure    (C3)
 │   ├── coverage_histogram.py    # build_coverage_histogram(df) -> go.Figure                     (C4)
-│   └── under_insurance_by_zone.py  # build_zone_status_bars(df, selected_zone) -> go.Figure     (C5)
+│   └── under_insurance_by_zone.py  # build_zone_status_bars(df, selected_zones) -> go.Figure    (C5)
 └── assets/
     └── theme.css             # Styling overrides
 ```
@@ -183,9 +183,15 @@ one it produces — it only highlights/dims its own selection). This rule
 applies identically on every page — e.g. Page 2's by-zone stacked bar
 (C5) doesn't filter itself by `zone_family` any more than Page 1's C3 does.
 
+`zone_family` is **multi-select** (a list, not a single value) — a plain
+click on a zone bar/box toggles it in/out of the list, on either page;
+`state` stays single-select. Both C3 and C5 highlight every zone in the
+list at full opacity and dim the rest, same "never filter yourself" rule,
+just checking list membership instead of equality.
+
 ```python
 # Default state — always use this structure
-{"year_range": [YEAR_MIN, YEAR_MAX], "stat": "median", "state": None, "zone_family": None}
+{"year_range": [YEAR_MIN, YEAR_MAX], "stat": "median", "state": None, "zone_family": []}
 ```
 
 All user interactions write to the store, via callbacks in
