@@ -135,9 +135,8 @@ an app run and doesn't change during the dashboard's lifetime.
 import polars as pl
 from pathlib import Path
 
-USE_SAMPLE = True  # matches the USE_SAMPLE convention used elsewhere in this repo
-_MODE = "sample" if USE_SAMPLE else "full"
-_DATA_PATH = Path(__file__).parent.parent / "data" / "processed" / f"claims_{_MODE}.parquet"
+from config import DATA_MODE  # "sample"/"full", read from config.json — see config.py
+_DATA_PATH = Path(__file__).parent.parent / "data" / "processed" / f"claims_{DATA_MODE}.parquet"
 
 # Column pushdown at read time (same pattern src/data/ingest.py uses on the
 # raw FEMA parquet) — widen this list when a page genuinely needs another

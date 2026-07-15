@@ -19,10 +19,9 @@ if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
 from src.data.clean import US_STATES, ZONE_ORDER  # noqa: E402
+from config import DATA_MODE  # noqa: E402  (data_mode: "sample"/"full", see config.json)
 
-USE_SAMPLE = True  # matches the USE_SAMPLE convention used elsewhere in this repo
-_MODE = "sample" if USE_SAMPLE else "full"
-_DATA_PATH = REPO_ROOT / "data" / "processed" / f"claims_{_MODE}.parquet"
+_DATA_PATH = REPO_ROOT / "data" / "processed" / f"claims_{DATA_MODE}.parquet"
 
 TARGET = "amountPaidOnBuildingClaim"
 

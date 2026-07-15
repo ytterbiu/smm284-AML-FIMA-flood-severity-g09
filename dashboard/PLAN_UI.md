@@ -644,10 +644,9 @@ pattern as the raw FEMA download.
      sample-mode data never got close to the cap. Verified the cap is a
      true no-op at current scale (identical result, ~7s, unchanged). Even
      capped, full mode would still cost ~1-2 minutes at first access
-     (50K rows vs. today's 2,445) — worth revisiting whether to move this
-     from eager (built into the page layout) to lazy (behind a callback,
-     triggered on page visit with a loading spinner) once full mode is
-     actually used, so it doesn't block the rest of the app's startup.
+     (50K rows vs. today's 2,445) — deferred from eager to lazy in
+     Build Order step 8 below, once full mode was actually about to be
+     used.
 5. [x] **Predict page** (built ahead of pages 3's tuning chart and page 4,
    at the user's request) — `pages/model_predict.py`: 14-field input form
    (6 `NUMERIC` number inputs + 8 `CATEG` dropdowns), options/defaults
@@ -742,6 +741,112 @@ pattern as the raw FEMA download.
    - `charts/oot_scoreboard.py`'s empty-state figure helper was promoted to
      `charts/common.py::empty_state_figure()` once a third chart needed it
      (Lorenz curve, double lift), rather than duplicating it a third time.
+8. [x] **Deferred eager Model-section computation from app-import time to
+   first-page-visit time**, ahead of switching `USE_SAMPLE=False` for a
+   full-data test run. Two pages built expensive charts directly inside a
+   static `layout = dbc.Container([...])` at module import (i.e. once,
+   unconditionally, at app startup, before anyone had opened that page):
+   - `pages/model_importance.py` — `build_permutation_importance_chart()`
+     (capped at 50K rows, but still ~1-2 min at full-data scale).
+   - `pages/model_lift.py` — `build_lorenz_curve(DEFAULT_MODELS)`, which
+     runs GBM/GLM/RF `.predict()` over the *entire* OOT set (~213,746 rows
+     at full scale vs. today's 2,445) to build the "all 6 models" starting
+     view.
+
+   Fix: converted both pages' `layout` from a static object to a zero-arg
+   function (`def layout(**_kwargs): return dbc.Container([...])`) — Dash's
+   pages system calls this fresh on every navigation to that page instead
+   of once at import, so the cost moves from "app startup, always" to
+   "first time this page is opened, once" (the underlying compute
+   functions already cache their own results at module level —
+   `compute_permutation_importance`'s `_cache`, `get_oot_predictions`'s
+   `_oot_predictions_cache` — so a second visit is instant regardless).
+   `pages/model_performance.py` wasn't touched: its only layout-time build
+   (`build_oot_scoreboard`) is a plain CSV read/filter, not a scalability
+   concern.
+
+   **Verified** (on sample data, before the full-data run even finished
+   downloading): app import time dropped from measuring build functions
+   inline (~11s, per Build Order step 4's note) to 2.47s. Directly called
+   the page registry's `layout()` for both pages — first call ~8.08s
+   (importance) / ~3.73s (lift), second call 0.11s / 0.01s, confirming the
+   cache actually holds across repeated visits, not just within one call.
+   Re-ran the existing `/_dash-update-component` dispatch tests for
+   `model-selection-state` -> `lorenz-curve.figure` and -> `oot-scoreboard.
+   figure` to confirm the callable-layout change didn't disturb the
+   existing callback wiring.
+9. [x] **`dashboard/config.json` + `dashboard/config.py`** — sample/full
+   data-mode toggle moved out of code entirely, per user request (wanted
+   to switch modes without editing files each time). Considered a CLI flag
+   first, ruled out since a future `gunicorn app:server` deployment
+   wouldn't forward custom argparse flags the way a plain `python app.py`
+   invocation would; considered an env var next (documented how to set one
+   in PowerShell/Git Bash), but the user preferred an actual config file —
+   landed on a plain `config.json` (`{"data_mode": "sample"}`) read via the
+   stdlib `json` module (no new dependency, unlike `.env` + `python-dotenv`
+   for what's currently a single setting) rather than a `.py` config
+   module (still "editing code" from the user's point of view, just
+   centralized to one file instead of two).
+   - `config.py` reads `config.json` once, defaults to `"sample"` if the
+     file or key is missing, and raises `ValueError` on anything other
+     than `"sample"`/`"full"` — fail fast on a typo'd value rather than
+     silently falling back.
+   - `dashboard/data.py` and `dashboard/model_data.py` both now derive
+     `_DATA_PATH` from `config.DATA_MODE` instead of each hardcoding their
+     own `USE_SAMPLE = True` literal — fixes the pre-existing duplication
+     (had to edit both files to switch modes) as a side effect, not just
+     the "no code edit" ask.
+   - Committed with the default `"sample"` checked in, so a fresh clone
+     behaves exactly as before; switching to full data is now "edit
+     `config.json`, restart the dev server" only.
+   - Verified: reading `config.py` directly, and both `data.py`/
+     `model_data.py`'s `_DATA_PATH` resolving to `claims_sample.parquet` by
+     default and `claims_full.parquet` when `data_mode` is set to `"full"`
+     (tested by temporarily writing `full` into `config.json` and back);
+     invalid value correctly raises; full `app.server.test_client()`
+     smoke test across all 6 pages still returns 200 after the migration.
+10. [x] **Made the lazy-load in step 8 actually visible** — user feedback
+    after using it: navigating to `/model/lift` gave no loading indicator
+    at all during the first-visit cost. Root cause: a callable `layout()`
+    still runs the expensive `build_*()` calls *synchronously, before the
+    page's HTML reaches the browser* — it moves the cost from "app
+    startup" to "first visit," but doesn't make it visible, since
+    `dcc.Loading`'s spinner only activates during an actual callback
+    round-trip, not while the initial per-page `layout()` call is still
+    being evaluated server-side.
+    - `pages/model_lift.py`: `layout()` now returns instantly —
+      `lorenz-curve`'s initial figure and `gini-table`'s initial content
+      are lightweight placeholders (`charts/common.py::empty_state_figure
+      ("Loading…")` and an empty `html.Div`) instead of the real
+      `build_lorenz_curve(DEFAULT_MODELS)`/`_build_gini_table
+      (DEFAULT_MODELS)` calls. No new callback needed — the existing
+      `model-selection-state` -> `lorenz-curve.figure`/`gini-table.
+      children` callbacks (Build Order step 6) already re-fire on every
+      navigation to this page, so the real content now arrives via an
+      actual callback, with `dcc.Loading`'s spinner (added around
+      `gini-table` too, `type="circle"`) visible for the whole wait.
+      `double-lift-chart` didn't need this — its initial
+      `build_double_lift_chart(None, None)` was already cheap (returns an
+      empty-state message with no model to score, since no pair is
+      selected until `sync_lift_dropdowns` fires).
+    - `pages/model_importance.py`: same placeholder treatment for all
+      three charts, but this page had no existing per-visit-triggered
+      callback (its 3 charts don't react to anything — GBM-only, no
+      model-selection toggle). Added `id`s (`shap-bar-chart`,
+      `shap-beeswarm-chart`, `permutation-importance-chart`) and three new
+      callbacks, each `Input("url", "pathname")` (the app shell's
+      `dcc.Location`, always mounted — same "shell-level Input drives a
+      page-specific Output" pattern already proven safe throughout this
+      app, e.g. `filter-state` -> Page 1's charts) -> one chart each, so
+      each panel loads (and shows its own spinner) independently rather
+      than blocking on the slowest one.
+    - **Verified**: `layout()` now returns in ~0.003-0.006s for both pages
+      (previously ~3.7s/~8s). Re-ran the real-dispatch tests via
+      `app.server.test_client()` posting to `/_dash-update-component` for
+      all 5 affected Outputs (`lorenz-curve.figure`, `gini-table.
+      children`, `shap-bar-chart.figure`, `shap-beeswarm-chart.figure`,
+      `permutation-importance-chart.figure`) — all return 200 with the
+      correct trace counts. Full 6-page smoke test still green.
 
 ## Status
 

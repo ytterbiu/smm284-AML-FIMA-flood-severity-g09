@@ -13,6 +13,20 @@ titles itself). Left: Lorenz curve (C11) + a Gini table underneath (values
 shown there instead of in the chart legend). Right: double lift chart
 (C12), comparing exactly 2 models at a time (dropdowns, options restricted
 to whatever's toggled on in model-selection-state).
+
+`layout` is a zero-arg function, not a static object (Dash calls it fresh
+on every navigation to this page instead of once at app import) — but it
+returns instantly, with lightweight "Loading…" placeholders for the Lorenz
+curve and Gini table rather than building them inline. The real content
+comes from the model-selection-state callback below, which already
+re-fires on every navigation to this page regardless (same mechanism
+Page 1 uses for its choropleth/histogram/boxplots) — building the
+expensive figures (build_lorenz_curve/compute_ginis run GBM/GLM/RF
+.predict() over the entire OOT set, ~213,746 rows at full-data scale vs.
+today's 2,445) there instead of in `layout()` itself means the page
+renders immediately and dcc.Loading's spinner is visible for the real
+wait, rather than the browser just hanging with no feedback while
+`layout()` blocks before the page even reaches the browser.
 """
 from __future__ import annotations
 
@@ -22,7 +36,7 @@ import dash_bootstrap_components as dbc
 
 from charts.lorenz_curve import build_lorenz_curve, compute_ginis
 from charts.double_lift import build_double_lift_chart
-from model_controls import DEFAULT_MODELS
+from charts.common import empty_state_figure
 from model_data import MODEL_COLORS
 
 dash.register_page(__name__, path="/model/lift", name="Lorenz & Lift", order=3)
@@ -71,87 +85,91 @@ def _build_gini_table(selected_models: list[str] | None) -> dbc.Table | html.P:
     )
 
 
-layout = dbc.Container(
-    [
-        dbc.Row(
-            [
-                dbc.Col(
-                    [
-                        # Invisible spacer, same markup as the dropdown row on
-                        # the right, so the two charts' top edges align — the
-                        # dropdowns above the double lift chart push it down
-                        # by their own height, which this mirrors exactly
-                        # rather than a hand-tuned pixel offset.
-                        dbc.Row(
-                            [
-                                dbc.Col(
-                                    html.Div(
-                                        [
-                                            html.Span("Model A", className="me-2 small text-muted"),
-                                            dcc.Dropdown(clearable=False),
-                                        ],
-                                        className="d-flex align-items-center",
+def layout(**_kwargs):
+    return dbc.Container(
+        [
+            dbc.Row(
+                [
+                    dbc.Col(
+                        [
+                            # Invisible spacer, same markup as the dropdown row
+                            # on the right, so the two charts' top edges align
+                            # — the dropdowns above the double lift chart push
+                            # it down by their own height, which this mirrors
+                            # exactly rather than a hand-tuned pixel offset.
+                            dbc.Row(
+                                [
+                                    dbc.Col(
+                                        html.Div(
+                                            [
+                                                html.Span("Model A", className="me-2 small text-muted"),
+                                                dcc.Dropdown(clearable=False),
+                                            ],
+                                            className="d-flex align-items-center",
+                                        ),
+                                        width="auto",
                                     ),
-                                    width="auto",
-                                ),
-                            ],
-                            className="g-2 mb-2",
-                            style={"visibility": "hidden"},
-                        ),
-                        dcc.Loading(
-                            dcc.Graph(
-                                id="lorenz-curve",
-                                figure=build_lorenz_curve(DEFAULT_MODELS),
-                                config={"displayModeBar": False},
+                                ],
+                                className="g-2 mb-2",
+                                style={"visibility": "hidden"},
                             ),
-                        ),
-                        html.Div(id="gini-table", children=_build_gini_table(DEFAULT_MODELS)),
-                    ],
-                    width=6,
-                ),
-                dbc.Col(
-                    [
-                        dbc.Row(
-                            [
-                                dbc.Col(
-                                    html.Div(
-                                        [
-                                            html.Span("Model A", className="me-2 small text-muted"),
-                                            dcc.Dropdown(id="lift-model-a", clearable=False),
-                                        ],
-                                        className="d-flex align-items-center",
-                                    ),
-                                    width="auto",
+                            dcc.Loading(
+                                dcc.Graph(
+                                    id="lorenz-curve",
+                                    figure=empty_state_figure("Loading…", height=460),
+                                    config={"displayModeBar": False},
                                 ),
-                                dbc.Col(
-                                    html.Div(
-                                        [
-                                            html.Span("Model B", className="me-2 small text-muted"),
-                                            dcc.Dropdown(id="lift-model-b", clearable=False),
-                                        ],
-                                        className="d-flex align-items-center",
-                                    ),
-                                    width="auto",
-                                ),
-                            ],
-                            className="g-2 mb-2",
-                        ),
-                        dcc.Loading(
-                            dcc.Graph(
-                                id="double-lift-chart",
-                                figure=build_double_lift_chart(None, None),
-                                config={"displayModeBar": False},
                             ),
-                        ),
-                    ],
-                    width=6,
-                ),
-            ],
-            className="mt-3",
-        ),
-    ],
-    fluid=True,
-)
+                            dcc.Loading(
+                                html.Div(id="gini-table"),
+                                type="circle",
+                            ),
+                        ],
+                        width=6,
+                    ),
+                    dbc.Col(
+                        [
+                            dbc.Row(
+                                [
+                                    dbc.Col(
+                                        html.Div(
+                                            [
+                                                html.Span("Model A", className="me-2 small text-muted"),
+                                                dcc.Dropdown(id="lift-model-a", clearable=False),
+                                            ],
+                                            className="d-flex align-items-center",
+                                        ),
+                                        width="auto",
+                                    ),
+                                    dbc.Col(
+                                        html.Div(
+                                            [
+                                                html.Span("Model B", className="me-2 small text-muted"),
+                                                dcc.Dropdown(id="lift-model-b", clearable=False),
+                                            ],
+                                            className="d-flex align-items-center",
+                                        ),
+                                        width="auto",
+                                    ),
+                                ],
+                                className="g-2 mb-2",
+                            ),
+                            dcc.Loading(
+                                dcc.Graph(
+                                    id="double-lift-chart",
+                                    figure=build_double_lift_chart(None, None),
+                                    config={"displayModeBar": False},
+                                ),
+                            ),
+                        ],
+                        width=6,
+                    ),
+                ],
+                className="mt-3",
+            ),
+        ],
+        fluid=True,
+    )
 
 
 @callback(

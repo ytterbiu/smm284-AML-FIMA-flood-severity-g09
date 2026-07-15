@@ -64,9 +64,9 @@ MODEL_COLORS = {
 
 MODEL_COLUMNS = NUMERIC + CATEG + ["yearOfLoss", TARGET]
 
-USE_SAMPLE = True  # matches data.py's USE_SAMPLE convention
-_MODE = "sample" if USE_SAMPLE else "full"
-_DATA_PATH = REPO_ROOT / "data" / "processed" / f"claims_{_MODE}.parquet"
+from config import DATA_MODE  # noqa: E402  (data_mode: "sample"/"full", see config.json)
+
+_DATA_PATH = REPO_ROOT / "data" / "processed" / f"claims_{DATA_MODE}.parquet"
 
 _df: pl.DataFrame | None = None
 _models: dict[str, object] = {}
