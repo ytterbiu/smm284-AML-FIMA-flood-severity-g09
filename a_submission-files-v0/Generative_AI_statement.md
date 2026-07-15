@@ -33,8 +33,6 @@ permitted categories:
 - Explaining Methods/Concepts:
   - Used to clarify conceptual assumptions (e.g., explaining nuances in flood
     reinsurance)
-  - Note: Per genAI policy, disclosure is not strictly required for this, but is
-    included for transparency
 
 ## 3. Example Prompts
 
@@ -52,7 +50,7 @@ included one example of each primary prompt type:
   - "Help to identify the key points in this extract/paper..."
 - Prose Editing:
   - "Help with rephrasing something in plain business English: [draft
-    paragraph]... terms like 'idempotently' are unnecessarily complex"
+    paragraph]... terms like 'idempotently' are potentially confusing"
 - Plotting Adjustments:
   - "This histogram takes ~4 minutes to plot - how can we make this more
     efficient"
