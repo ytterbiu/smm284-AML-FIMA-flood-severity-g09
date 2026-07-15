@@ -5,6 +5,7 @@ data/raw/*
 data/processed/*
 outputs/*
 .ipynb_checkpoints/
+b_video/
 
 # BE personal notes and resources (that I don't wish to track with Git)
 BE-resources/
