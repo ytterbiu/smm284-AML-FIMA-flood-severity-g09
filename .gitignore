@@ -6,6 +6,7 @@ data/processed/*
 outputs/*
 .ipynb_checkpoints/
 b_video/
+a_submission-docs/
 
 # BE personal notes and resources (that I don't wish to track with Git)
 BE-resources/

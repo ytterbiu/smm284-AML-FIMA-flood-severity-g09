@@ -20,13 +20,13 @@
 
 ## Video link
 
-The video for our presentation is available via:
+The video for our presentation is available via: https://youtu.be/B8rsYvt4Pxk
+
+- This is an unlisted video on YouTube.
 
 ## Submission file structure
 
 The directory structure is as follows
-
-> BE note: this is to be updated
 
 Created and pasted using the `tree -L 3` command in the zsh terminal
 
@@ -37,25 +37,34 @@ Created and pasted using the `tree -L 3` command in the zsh terminal
     ├── SMM284_Group09_EvansKhanLiSudarmo.ipynb
     ├── README.txt
     └── TBC
+    ├── data
+    │   ├── processed
+    │   │   └── claims_sample.parquet
+    │   ├── raw
+    │   │   ├── cpiaucsl.csv
+    │   │   ├── cpiaucsl.provenance.json
+    │   │   └── provenance.json
+    │   └── sample
+    │       ├── nfip_sample.parquet
+    │       └── nfip_sample.provenance.json
+    └── models
+        ├── cv_results_full_oot_gbm.csv
+        ├── cv_results_full_oot_gbm_gammadev.csv
+        ├── cv_results_full_oot_glm.csv
+        ├── cv_results_full_oot_glm_gammadev.csv
+        ├── cv_results_sample_oot_gbm.csv
+        ├── cv_results_sample_oot_gbm_gammadev.csv
+        ├── cv_results_sample_oot_glm.csv
+        ├── cv_results_sample_oot_glm_gammadev.csv
+        └── tuned_params.json
 ```
 
-## Submission checklist (!to be filled out!\*)
+## Submission checklist
 
-1. Jupyter notebook (.ipynb), which is the report
-2. Dataset file, or a script that downloads or generates it
-3. README.txt listing group members, student IDs, and the presentation video
-   link (can be inside the notebook appendix, or as a separate file)
-4. Generative AI usage statement (can be inside the notebook appendix or as a
-   separate file)
-
----
-
-## Reference notes
-
-- Machine Learning and AI for Risk Management Chapter Open Access First Online:
-  07 December 2018 pp 33–50; Saqib Aziz & Michael Dowling
-  https://link.springer.com/chapter/10.1007/978-3-030-02330-0_3
-- The Role of Feelings in Investor Decision-Making; Brian M. Lucey, Michael
-  Dowling First published: 14 March 2005
-  https://doi.org/10.1111/j.0950-0804.2005.00245.xDigital Object Identifier
-  (DOI)
+1. [x] Jupyter notebook (.ipynb), which is the report
+2. [x - included in ipynb] Dataset file, or a script that downloads or generates
+   it
+3. [x] README.txt listing group members, student IDs, and the presentation video
+       link (can be inside the notebook appendix, or as a separate file)
+4. [x] Generative AI usage statement (can be inside the notebook appendix or as
+       a separate file)
