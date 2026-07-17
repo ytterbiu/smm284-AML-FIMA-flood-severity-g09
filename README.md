@@ -1,10 +1,10 @@
-# MSc AS - Term 3: SMM284 Applied Machine Learning — Group Project
+# MSc AS - Term 3: SMM284 Applied Machine Learning - Group Project
 
 Term 3 group project for Applied Machine Learning (60% of coursework grade - 60%
 of module).
 
 - Group 09 working directory
-- HTML report: TBC (will be given as a link to notebook)
+- [Submitted Notebook](https://github.com/ytterbiu/smm284-AML-FIMA-flood-severity-g09/blob/main/a_submission-files-v0/SMM284_Group09_EvansKhanLiSudarmo.ipynb)
 
 ## Background
 
@@ -12,24 +12,77 @@ For this project we chose to look at a theoretical pricing review for a Lloyd's
 syndicate writing US property-catastrophe flood reinsurance, prepared for the
 pricing & capital committee ahead of the 2026–27 renewal.
 
-- Additional information TBI
+We also recorded a YouTube presentation as part of this submission, available
+via: https://youtu.be/B8rsYvt4Pxk
 
 ## Structure
 
-TBC
+```zsh
+.
+├── BE_notes.ipynb
+├── README.md
+├── a_submission-files-v0
+│   ├── Generative_AI_statement.md
+│   ├── Group Coursework Submission Form.docx
+│   ├── README.txt
+│   └── SMM284_Group09_EvansKhanLiSudarmo.ipynb
+├── data
+│   ├── processed
+│   │   └── claims_sample.parquet
+│   ├── raw
+│   │   ├── FimaNfipClaimsV2.parquet
+│   │   ├── cpiaucsl.csv
+│   │   ├── cpiaucsl.provenance.json
+│   │   └── provenance.json
+│   └── sample
+│       ├── nfip_sample.parquet
+│       └── nfip_sample.provenance.json
+├── data.py
+├── export_sample.py
+├── exports
+│   └── dashboard
+│       ├── baseline_zone_means.csv
+│       ├── checksums.txt
+│       ├── dashboard_support.py
+│       ├── metadata.json
+│       ├── model_gbm.joblib
+│       ├── model_glm.joblib
+│       ├── model_rf.joblib
+│       ├── oot_scoreboard.csv
+│       ├── oot_scoreboard_insurance.csv
+│       ├── shap_mean_abs_by_feature.csv
+│       ├── shap_sample_raw_features.parquet
+│       └── shap_values_oot_sample.npz
+├── models
+│   ├── cv_results_full_oot_gbm.csv
+│   ├── cv_results_full_oot_gbm_gammadev.csv
+│   ├── cv_results_full_oot_glm.csv
+│   ├── cv_results_full_oot_glm_gammadev.csv
+│   ├── cv_results_sample_oot_gbm.csv
+│   ├── cv_results_sample_oot_gbm_gammadev.csv
+│   ├── cv_results_sample_oot_glm.csv
+│   ├── cv_results_sample_oot_glm_gammadev.csv
+│   └── tuned_params.json
+└── requirements.txt
+```
 
 ## Contents
 
-To be inserted.
+- The full notebook executed end-to-end on the full 2.7M-row dataset with all
+  outputs and figures saved.
+- **data/** - provenance sidecars only. The FEMA claims parquet (~0.5 GB)
+  exceeds upload limits and is deliberately excluded: the notebook's data cell
+  downloads it from the pinned OpenFEMA URL and verifies the recorded hash
+  against data/provenance.json. data/sample/ holds the small development fixture
+  used when USE_SAMPLE = True.
+- **models/** - read by the notebook at run time. tuned*params.json lets re-runs
+  load the hyperparameter search (seconds) instead of repeating it (hours); it
+  retains the superseded MAE-scored record as evidence for the tuning-scorer
+  correction discussed in the report (Reflection 8). The cv_results*\*.csv files
+  are the complete per-candidate search records for both scorer generations; one
+  is read directly by the notebook.
+- **exports/dashboard/** - static chart exports referenced in the video.
 
 ## Requirements
 
-- TBD
-- Include requirement.txt link / references
-
-## References
-
-<!-- > Zvi Bodie, Alex Kane, and Alan J. Marcus. Investments ISE. The McGraw Hill
-> Series in Finance, Insurance, and Real Estate. McGraw Hill, 13th
-> edition, 2024. ISBN 9781266085963. URL
-> https://www.mheducation.co.uk/investments-ise-9781266085963-emea-group. -->
+- Python 3.13.2 -> see requirements.txt
