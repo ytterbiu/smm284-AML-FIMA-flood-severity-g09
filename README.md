@@ -6,6 +6,19 @@ of module).
 - Group 09 working directory
 - [Submitted Notebook](https://github.com/ytterbiu/smm284-AML-FIMA-flood-severity-g09/blob/main/a_submission-files-v0/SMM284_Group09_EvansKhanLiSudarmo.ipynb)
 
+## Dashboard
+
+- Update 2026-07-17 Fri: merged dev_ui branch into main. To run dashboard
+  created by @asudarmo, run:
+
+```zsh
+python dashboard/app.py
+```
+
+See the dashboard
+[README](https://github.com/ytterbiu/smm284-AML-FIMA-flood-severity-g09/tree/main/dashboard)
+for more information and setup information.
+
 ## Background
 
 For this project we chose to look at a theoretical pricing review for a Lloyd's
