@@ -25,5 +25,11 @@ docs/
 tmp_*
 *.ppt*
 *.key
+
+.claude/
+
+.jupyter/
+.jupyter_ystore.db
+
 *.doc*
 exports/dashboard/model_rf.joblib
