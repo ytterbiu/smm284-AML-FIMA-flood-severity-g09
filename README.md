@@ -88,12 +88,12 @@ via: https://youtu.be/B8rsYvt4Pxk
   downloads it from the pinned OpenFEMA URL and verifies the recorded hash
   against data/provenance.json. data/sample/ holds the small development fixture
   used when USE_SAMPLE = True.
-- **models/** - read by the notebook at run time. tuned*params.json lets re-runs
+- **models/** - read by the notebook at run time. tuned params.json lets re-runs
   load the hyperparameter search (seconds) instead of repeating it (hours); it
   retains the superseded MAE-scored record as evidence for the tuning-scorer
-  correction discussed in the report (Reflection 8). The cv_results*\*.csv files
-  are the complete per-candidate search records for both scorer generations; one
-  is read directly by the notebook.
+  correction discussed in the report (Reflection 8). The cv_results\*\*.csv
+  files are the complete per-candidate search records for both scorer
+  generations; one is read directly by the notebook.
 - **exports/dashboard/** - static chart exports referenced in the video.
 
 ## Requirements
