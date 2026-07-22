@@ -25,6 +25,8 @@ docs/
 tmp_*
 *.ppt*
 *.key
+*.doc*
+exports/dashboard/model_rf.joblib
 
 .claude/
 
@@ -33,3 +35,5 @@ tmp_*
 
 *.doc*
 exports/dashboard/model_rf.joblib
+ANALYSIS_SUMMARY.md
+CLAUDE.md

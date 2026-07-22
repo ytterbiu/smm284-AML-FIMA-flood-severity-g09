@@ -73,13 +73,57 @@ pattern), writing outputs to `data/processed/` (already gitignored).
 
 ## Phase 3 — Dashboard (Dash)
 
-Two sections; **Page 1 (EDA) built first**, Page 2 (model UI) blocked on
-Ben's saved model (see below).
+Three pages: **Page 1 (severity overview) built first**, **Page 2
+(under-insurance)** next, **Page 3 (model UI)** blocked on Ben's saved
+model (see below).
 
 Reference implementation for conventions: `C:\Users\ardih\Data\CMS_Health_Insurance_Exchange\dashboard`
 (see its `PLAN.md`/`AGENTS.md`) — same `dcc.Store`-as-single-source-of-truth
 filter pattern, same dark-theme/Bootstrap conventions, adapted to this
 app's chart set.
+
+### Architecture change for multi-page: global filter-state + shared control row
+
+Page 1 was originally built as if it were the only page — `filter-state`
+and the whole control row (year slider, stat toggle, KPI cards, active-filter
+chips, reset) lived inside `pages/overview.py`. Adding Page 2 means
+promoting these to app-shell level so they're shared rather than
+per-page-duplicated:
+
+- **`dcc.Store(id="filter-state")` moves to `app.py`'s top-level layout**,
+  outside `dash.page_container`, so it persists across page navigation —
+  confirmed intentional (not per-page-independent): selecting a state or
+  zone on one page stays selected when you switch pages, letting you
+  explore the same claim subset through both the severity and
+  under-insurance lens. `zone_family` in particular is shared literally
+  identically — clicking a zone on Page 2's by-zone chart sets the exact
+  same field Page 1's C3 boxplot clicks do.
+- **The control row's year slider / stat toggle / active-filter chips /
+  reset button also move to `app.py`**, built by a shared function (e.g.
+  `dashboard/components.py: build_control_row()`), so there's exactly one
+  copy in the DOM regardless of route, instead of duplicating the same
+  markup+IDs per page.
+- **The KPI cards are the one part that stays page-aware — in both
+  content *and count*** (2 cards on Page 1, up to 4 on Page 2). These live
+  in their own `html.Div(id="kpi-row")` in the app shell, populated by one
+  callback keyed off `dcc.Location(id="url").pathname` + `filter-state`.
+  Each page module exposes its own `build_kpi_cards(filter_state) -> list`
+  function (co-located with that page's other logic); the shared callback
+  just dispatches to the right one based on the current path.
+- The callbacks that currently live in `pages/overview.py` but operate on
+  the now-shared control row (`update_filter_state`, `update_stat_buttons`,
+  `sync_year_range_slider`, `update_active_filters_display`,
+  `remove_filter_via_chip`) move to a shared module too (e.g.
+  `dashboard/shared_controls.py`), imported once from `app.py` — so they're
+  registered exactly once rather than per-page.
+- **`suppress_callback_exceptions=True`** needs adding to the `Dash()`
+  constructor: each page's own chart callbacks (`choropleth-map`,
+  future under-insurance chart IDs) reference component IDs that only
+  exist while *that* page is mounted, which Dash's default startup
+  validation would otherwise flag as missing.
+- **A simple nav** needs adding — there currently isn't one, since this was
+  single-page until now. A `dbc.Nav`/`dbc.NavLink` pair driven by
+  `dash.page_registry` in the app shell is enough.
 
 ### Page 1 — "How much does flood insurance pay out in the USA?"
 
@@ -98,8 +142,10 @@ feature set, kept for the future model-input page), but Page 1 only needs
 uses on the raw FEMA parquet. This meaningfully lowers the full-data memory
 footprint below the earlier "few hundred MB to ~1GB" estimate (that number
 assumed all 46 columns); re-check actual usage once `mode=full` exists.
-Page 2 will need its own, wider column set (the `NUMERIC`/`CATEG` feature
-list from `BE_notes.ipynb` §7) — not a reason to widen Page 1's load.
+This 5-column set was widened by 2 for Page 2's under-insurance charts (see
+below); Page 3 (model UI) will need a much wider set (the `NUMERIC`/`CATEG`
+feature list from `BE_notes.ipynb` §7) and should get its own load path
+rather than growing this shared one further.
 
 **Layout (top → bottom)**
 ```
@@ -166,6 +212,28 @@ never by the one it produces — it only highlights/dims its own selection.
 Clicking an already-selected state/zone again clears that filter (toggle
 behaviour, per spec). **Reset clears all four fields back to defaults,
 including `stat` → `"median"`** (confirmed).
+
+**`zone_family` upgraded to multi-select, per user request** (originally
+single-select like `state`, above). Plain click now toggles a zone in/out
+of a list (`zone_family: []` is the new "no filter" default, replacing
+`null`) rather than shift+click — Dash's `clickData` payload doesn't carry
+keyboard-modifier state (no `shiftKey`), so detecting shift would need a
+custom clientside JS callback wired to the graph's native DOM events;
+plain-click-toggles-membership gets the same outcome with zero new
+mechanism. Deliberately applies to both C3 (Page 1) and C5 (Page 2), since
+`zone_family` is one shared field in `filter-state` — confirmed as wanted,
+not an accidental side effect. `state` remains single-select (unchanged).
+Chip display changed to match: one "Zone: X ×" chip per selected zone
+(not one combined chip), each independently removable — chip `key` encodes
+which zone via `"zone_family::<zone>"`, parsed back out in
+`remove_filter_via_chip`. `apply_filters(zone_family=...)` now takes a list
+and filters via `.is_in(...)`; `build_zone_boxplots`/`build_zone_status_bars`
+take `selected_zones` (list) and highlight-by-membership instead of
+highlight-by-equality. Verified via real Dash dispatch
+(`app.server.test_client()`): click A -> click V (different zone, appends)
+-> click A again (toggles off, leaves V) produces the expected
+`zone_family` list at each step; both charts' opacity arrays correctly show
+full opacity for every currently-selected zone.
 
 **Callback topology**
 ```
@@ -280,7 +348,7 @@ dashboard/
 ├── charts/
 │   ├── choropleth.py       # build_choropleth(df, stat, selected_state) -> go.Figure   (C1)
 │   ├── histogram.py        # build_histogram(df, log=False) -> go.Figure               (C2)
-│   └── boxplots.py         # build_zone_boxplots(df, stat, selected_zone) -> go.Figure  (C3)
+│   └── boxplots.py         # build_zone_boxplots(df, stat, selected_zones) -> go.Figure (C3)
 ├── pages/
 │   └── overview.py         # Page 1 layout + callbacks
 └── assets/
@@ -330,18 +398,477 @@ redefining it (the `US_STATES` set currently only exists ad hoc in
    since sample data (22K rows) wouldn't expose a raw-array performance
    problem even if we'd built it the naive way.
 
-### Page 2 — Model UI *(blocked — see below)*
+### Page 2 — Under-Insurance
 
-Feature-input form → prediction → explanation (SHAP feature importance,
-lift vs. flat-zone baseline). Needs a serialized model artifact.
+Ports `BE_notes.ipynb` §14 ("Behavioural rider: under-insurance") — compares
+`totalBuildingInsuranceCoverage` to `buildingReplacementCost` — into two
+interactive charts, sharing the global filter-state and control row from
+Page 1 (see "Architecture change" above).
 
-**Blocker:** nothing downstream of raw ingestion is currently saved by the
-notebook — the fitted `best_model` (untuned GBM, refit on the OOT training
-set) only ever exists in-memory during a notebook run. Need Ben to export
-it (e.g. `joblib.dump(best_model, "models/best_model.joblib")`) before Page
-2 can start. Revisit once that's available — don't build against a
-placeholder/re-trained-by-us model, since the whole point is to serve
-*his* selected, validated model.
+**Data**: same cached `get_df()` DataFrame as Page 1, widened by 2 columns
+— `totalBuildingInsuranceCoverage` and `buildingReplacementCost` — added to
+`DASHBOARD_COLUMNS`. A second, *local* validity gate applies on top of the
+usual year/state/zone filters: only rows where both columns are present
+and `buildingReplacementCost > 0` count toward this page's charts/KPIs
+(mirrors the notebook's `ok = rc.notna() & cov.notna() & (rc > 0)` mask).
+Coverage ratio (`coverage / replacement_cost`) is clipped at 2, matching
+the notebook.
+
+**Status bands** (shared across both charts, same 3 colors and thresholds
+everywhere on this page):
+| Band | Threshold | Color |
+|---|---|---|
+| Adequately insured | ratio ≥ 0.8 | neutral (e.g. steel blue) |
+| Under-insured | 0.5 ≤ ratio < 0.8 | amber |
+| Severely under-insured | ratio < 0.5 | red |
+
+**Layout (top → bottom)**, same control-row-then-charts shape as Page 1:
+```
+(shared control row + page-aware KPI row — see below)
+----------------------------------------------------------------
+C4 (coverage-ratio histogram, colored by band)  |  C5 (100%-stacked
+                                                 |  bar: status share by zone)
+```
+
+**Chart specs**:
+- **C4 — coverage-ratio histogram**: same server-side `np.histogram`
+  binning discipline as C2 (payload size independent of row count), but
+  bin edges are constructed as **three concatenated `linspace` ranges**
+  (0→0.5, 0.5→0.8, 0.8→2.0) rather than one uniform range, so 0.5 and 0.8
+  always land exactly on a bin boundary — no single bar straddles two
+  status bands. Each bar colored by whichever band its bin falls in.
+- **C5 — by-zone stacked bar**: one 100%-stacked bar per `zone_family` (in
+  the existing `ZONE_ORDER`), three segments (adequately insured /
+  under-insured / severely under-insured) summing to 100%, same 3 colors
+  as C4 — an upgrade from the notebook's single-metric version (which only
+  plotted share-under-80%). **Clickable**, same as Page 1's C3: clicking a
+  zone's bar sets the shared `zone_family` filter (highlight/dim, not a
+  self-filter — same "never filter yourself" rule as C3).
+
+**Page-aware KPI row** (Page 2's 4 cards, replacing Page 1's 2 in the same
+`html.Div(id="kpi-row")` slot):
+1. Coverage Ratio (Median/Mean, per the shared `stat` toggle — confirmed
+   still meaningful here as the reference stat, even though the notebook
+   itself only ever printed a median)
+2. Properties Assessed (count passing the local validity gate, on top of
+   the global filters — this page's equivalent of Page 1's "Claims" count)
+3. % Under-insured (< 80%)
+4. % Severely under-insured (< 50%)
+
+**Build order**
+1. Do the multi-page architecture change first (Store + control row →
+   `app.py`, `suppress_callback_exceptions=True`, nav, page-aware
+   `kpi-row` callback) — Page 1 needs to keep working identically
+   afterward before Page 2 is added on top.
+2. Widen `DASHBOARD_COLUMNS`; add the coverage-ratio + validity-gate logic
+   (co-located with Page 2's chart code, not promoted into `data.py`,
+   since it's specific to this page).
+3. `charts/coverage_histogram.py` (C4) — validate the three-band bin
+   construction against real data before wiring it to filters.
+4. `charts/under_insurance_by_zone.py` (C5) — validate the stacked-bar
+   click-to-filter behaviour the same way C3's was validated (Build Order
+   step 3 on Page 1) — expected to work the same way, but worth a quick
+   sanity check given it's a new chart type (`go.Bar` with `barmode="stack"`
+   rather than `go.Box`).
+5. Wire `pages/under_insurance.py`'s layout + callbacks; confirm Page 1
+   still works unchanged after the shared-architecture refactor.
+
+### Model section (Pages 3+) — multiple pages, not one
+
+Originally scoped as a single "Page 3 — Model UI." Expanded on request into
+four sub-pages, since the model story has four genuinely different
+outputs to show:
+
+- **Model performance** — CV/OOT comparison across models (MAE, RMSE, R²,
+  D²)
+- **Lorenz curve / double lift charts** — moved to immediately after Model
+  performance in the nav (`order=3`), per user request, since both pages
+  share the model-toggle control below and read naturally as one
+  "comparing models" pair
+- **Feature importance / SHAP** — pushed to `order=4`
+- **Feature input UI + prediction**, across multiple models
+
+**None of these participate in the shared `filter-state`/control row from
+Pages 1–2.** They're all properties of a *fitted model* evaluated once on a
+fixed OOT split (or, for the predict page, a hypothetical single property),
+not the currently-filtered claims subset — there's no meaningful "state"/
+"zone"/"year" filter to apply to a SHAP summary or a Lorenz curve. The
+shared control row is hidden across this entire section (a pathname check
+in the app shell, e.g. `pathname.startswith("/model")`), same underlying
+mechanism as the page-aware `kpi-row`, just hiding rather than swapping
+content.
+
+**Model-selection toggle (Model performance + Lorenz/lift only) — added
+after initial build, per user request.** Distinct from the Pages 1–2
+`filter-state`: this doesn't filter claims rows, it filters *which models*
+appear in these two pages' charts (e.g. hide "Baseline (global mean)" or
+"RF" from the comparison). A `dcc.Checklist` of all 6 `MODEL_COLORS` keys
+(all checked by default) lives in a second shell-level control row,
+shown/hidden by the same pathname-check mechanism but scoped to exactly
+`/model/performance` and `/model/lift` (not `/model/importance`, which is
+GBM-only by design, nor `/model/predict`, which already shows all 4
+non-degenerate models side by side). Selection is held in a new
+`dcc.Store(id="model-selection-state")` in `app.py`, so it persists across
+navigation between the two pages. Both pages' chart-building functions
+become callback-driven (`Input("model-selection-state", "data")`) instead
+of static figures built once at layout time. Zero-models-selected is
+handled as an explicit empty state (a message), not an empty chart.
+
+**Data contract — RESOLVED.** A teammate exported a full artifact bundle to
+`exports/dashboard/` (`model_glm.joblib`/`model_gbm.joblib` committed;
+`model_rf.joblib` gitignored — too large, shared manually, integrity
+verified via `checksums.txt`'s SHA-256, matches exactly). Checked every
+file directly and test-loaded/predicted all three models on real sample
+rows before marking anything unblocked:
+
+| Sub-page | Needed | Delivered as | Status |
+|---|---|---|---|
+| Model performance | OOT scoreboard (MAE/RMSE/R²/D²) | `oot_scoreboard.csv` — 5 models: 3 baselines + GLM + RF + GBM | ✅ **Unblocked** |
+| Feature importance / SHAP | SHAP values + feature names | `shap_mean_abs_by_feature.csv` (bar chart) **+** `shap_sample_raw_features.parquet` (2000×15) **+** `shap_values_oot_sample.npz` (`shap_values`, `X_transformed`, `feature_names`, `base_value`, `row_index`) — enough for a full beeswarm plot, not just a bar chart | ✅ **Unblocked**, richer than originally scoped |
+| Lorenz curve / double lift | Fitted model artifact | `model_{glm,gbm,rf}.joblib`, all three loaded + test-predicted successfully | ✅ **Unblocked** — compute ourselves against our own OOT-filtered `claims_{mode}.parquet` (verified: all 14 `NUMERIC`+`CATEG` columns already present there, no re-run of Phase 1 needed). Bonus: `oot_scoreboard_insurance.csv` already has a per-model **Gini** column as a sanity-check reference point. |
+| Feature input + prediction | Fitted model artifact(s) | Same three `.joblib` files + `baseline_zone_means.csv` (trivial baseline lookup, no artifact needed) | ✅ **Unblocked** |
+
+**Artifacts and how to use them** (`exports/dashboard/`):
+- `metadata.json` — the full contract: exact `input_schema` (matches our
+  known `NUMERIC`/`CATEG` below byte-for-byte), model descriptions,
+  `primary_model: "gbm"`, `prediction_business_rule`, `baseline_rule`,
+  `random_state: 9`. Versions (`sklearn`/`numpy`/`pandas`/`shap` all pinned
+  identically to our own `.venv` — only the Python patch version differs,
+  which doesn't affect pickle compatibility) — checked, no environment risk.
+- `dashboard_support.py` — **always load models via its `load_model(path)`**,
+  never bare `joblib.load()`. The RF model is wrapped in a custom
+  `SmearedLogTargetRegressor` (Duan's smearing correction) pickled from
+  inside the notebook — `load_model()` registers the notebook-defined
+  classes under `__main__` before unpickling, which RF specifically
+  requires; harmless no-op for GLM/GBM, so use it uniformly for all three
+  rather than branching per model. Also exposes `clip_at_coverage(pred, X)`
+  — the coverage-cap business rule is applied *manually after* `.predict()`,
+  not baked into the pipelines themselves; always call it.
+- `oot_scoreboard.csv` / `oot_scoreboard_insurance.csv` / `shap_*` /
+  `baseline_zone_means.csv` — plain CSV/parquet/npz, load directly with
+  Polars/numpy.
+
+```python
+NUMERIC = ["totalBuildingInsuranceCoverage", "totalContentsInsuranceCoverage",
+           "deductible_amount", "building_age", "crsClassificationCode",
+           "elevationDifference"]
+CATEG = ["zone_family", "occupancy_class", "state", "floors_cat",
+         "basement_cat", "postFIRMConstructionIndicator_i",
+         "elevatedBuildingIndicator_i", "primaryResidenceIndicator_i"]
+```
+
+**Data loading**: this section needs a much wider column set than Pages
+1–2's 7-column `DASHBOARD_COLUMNS` (all of `NUMERIC`/`CATEG` above, plus
+`TARGET` for the Lorenz/lift charts' actuals). Gets its **own load path**
+(`dashboard/model_data.py`) rather than growing the shared
+`get_df()`/`DASHBOARD_COLUMNS` further — confirmed all 14 columns already
+exist in `claims_sample.parquet`, so this is just a new pushdown column
+list, not a pipeline change.
+
+**Logistics note**: `model_rf.joblib` is gitignored and was shared
+manually (same situation as `data/raw/`) — needs a documented manual-
+placement step for teammates who don't have it (README/`AGENTS.md`), same
+pattern as the raw FEMA download.
+
+**Build order**
+1. [x] Nav/routing: added the 4 `/model/*` pages (`pages/model_{performance,
+   importance,lift,predict}.py`, placeholder layouts, explicit `order=2..5`
+   — also added `order=0/1` to the existing two pages for deterministic
+   nav ordering), and hid the shared control row across the section via a
+   `control-row-wrapper` div + pathname-keyed callback in `app.py`.
+   Verified: all 6 pages register in the right order, control row/KPI row
+   correctly hide on `/model/*` and stay visible/unaffected on `/` and
+   `/under-insurance`.
+2. [x] `dashboard/model_data.py` — `get_model_df()`/`get_oot_df()` (wide
+   feature set + `TARGET`, `NUMERIC`/`CATEG`/`TARGET` derived from
+   `metadata.json` rather than duplicated), `get_model(name)` (cached,
+   via `dashboard_support.load_model()`), `predict(name, X)` (clipped at
+   coverage), `predict_baseline(zone_family)`. Verified: 22,533 rows
+   loaded, 2,445 in the OOT window, all 3 models load, and — the real
+   compatibility test — predictions run correctly against rows from *our
+   own* processed parquet (not just the teammate's isolated SHAP sample),
+   with GBM/RF visibly more differentiated than GLM against actuals,
+   matching the existing narrative.
+3. **Model performance page**:
+   - [x] `charts/oot_scoreboard.py` (C6) — small multiples, one horizontal-
+     bar panel per metric (MAE/RMSE/D²/R², in that reading order), same
+     model order fixed across all four panels (ascending MAE) so a
+     model's position is trackable across metrics. Fixed identity colors
+     per model (`MODEL_COLORS`, GBM anchored to palette slot 1 as
+     `metadata.json`'s `primary_model` — reused across future Model-section
+     pages, same convention as Page 2's `STATUS_COLORS`). Deliberately no
+     on-chart text ranking the metrics (e.g. no "D² is the fair one"
+     annotation) — panel order/position only, data shown for all four.
+     Genuinely useful finding this surfaced: RF's D² (−0.469) is far worse
+     than its MAE/R² rank would suggest — worth keeping visible now that
+     it's built rather than only in a table.
+   - [ ] Tuning-diagnostics chart from `cv_results_*`/`tuned_params.json`
+     (the one thing buildable pre-export) as a secondary panel — not done
+     yet, same page.
+4. [x] **Feature importance / SHAP page** — GBM-only throughout (confirmed
+   directly from the notebook: cell 85 computes SHAP against `best_model`
+   exclusively, and `shap.TreeExplainer` is tree-model-only anyway; no
+   GLM/RF equivalent exists to show). Three charts:
+   - `charts/shap_importance.py` — C8 (bar chart, `shap_mean_abs_by_
+     feature.csv`) + C9 (beeswarm, reimplemented in Plotly from
+     `shap_values_oot_sample.npz`'s `shap_values`/`X_transformed`/
+     `feature_names` — the `shap` library was only needed to *compute*
+     these, already done by the teammate; no `shap`-library plotting code
+     runs at dashboard runtime). Feature names cleaned of the
+     `money__`/`cat__`/`num__` ColumnTransformer prefix for readability.
+   - `charts/permutation_importance.py` — C10, genuinely new: not exported
+     by the teammate (checked `exports/dashboard/` — no such file), but
+     fully replicable ourselves, since `sklearn.inspection.
+     permutation_importance` is model-agnostic (no custom-class dependency
+     like RF's smearing wrapper) and works directly against
+     `model_gbm.joblib` + our own OOT data. Dual-scored (MAE + gamma
+     deviance, matching the notebook's own framing), on the raw 14
+     features (not the ~99 one-hot-expanded ones SHAP uses), deliberately
+     unclipped to match the notebook's choice. Computed once, cached
+     (~7s one-time cost, not per page view) — verified numbers, including
+     a real finding: `state` shows *negative* importance on our
+     ~2,445-row OOT sample (shuffling it slightly improves MAE) — read as
+     sampling noise given the small sample, not evidence `state` is
+     harmful; also a useful cross-check against SHAP's per-state findings
+     (which look at individual one-hot state columns, a finer-grained
+     notion of importance than shuffling the whole feature at once).
+   - Startup cost note: this page's layout builds the permutation
+     importance chart eagerly (not behind a callback), adding ~7s to app
+     import time (~11s total vs. near-instant before) — one-time per app
+     run, cached after.
+   - Post-build fixes from user review: (1) beeswarm colorscale switched
+     from the palette's sequential blue ramp to `shap` library's own
+     `#008bfb`→`#ff0051` (blue→red) — a deliberate, scoped exception to
+     the usual sequential-hue convention, since matching this specific
+     well-known external convention was requested. (2) Permutation
+     importance chart had a real ordering bug: copied `oot_scoreboard.py`'s
+     "sort ascending + `autorange=reversed`" recipe verbatim, but that
+     recipe's correctness there relied on ascending-MAE-happens-to-mean-
+     best-first — the opposite semantic holds for `mae_increase` (higher =
+     more important), so it needed a descending sort instead. Fixed and
+     verified the array order directly. (4) SHAP bar chart recolored to
+     match `shap` library's own high-value color (`#ff0051`) and given
+     value labels, per a reference screenshot; both charts' "outside" text
+     labels were getting clipped/overlapping error-bar whiskers —
+     fixed via explicit axis-range padding (bar chart) and manually-placed
+     annotations positioned past the whisker tip, not `textposition=
+     "outside"` (permutation importance panels).
+   - **Full-data scalability, addressed proactively before it was hit**:
+     `permutation_importance`'s cost is ~linear in row count (one
+     `model.predict()` per feature × repeat). Sample-mode OOT data
+     (~2,445 rows) never approached a problem, but full-mode OOT data
+     (~213,746 rows, per the notebook's own figures) would take an
+     estimated **~10 minutes** uncapped — computed eagerly at page load,
+     that's not acceptable. Fix: capped at `MAX_ROWS = 50_000`, directly
+     mirroring `BE_notes.ipynb` cell 60's own `SUB = min(50_000,
+     len(X_test))` — Ben hit the identical cost concern and already solved
+     it the same way; this was just an omission on our side since
+     sample-mode data never got close to the cap. Verified the cap is a
+     true no-op at current scale (identical result, ~7s, unchanged). Even
+     capped, full mode would still cost ~1-2 minutes at first access
+     (50K rows vs. today's 2,445) — deferred from eager to lazy in
+     Build Order step 8 below, once full mode was actually about to be
+     used.
+5. [x] **Predict page** (built ahead of pages 3's tuning chart and page 4,
+   at the user's request) — `pages/model_predict.py`: 14-field input form
+   (6 `NUMERIC` number inputs + 8 `CATEG` dropdowns), options/defaults
+   derived dynamically from `model_data.get_model_df()` (not hardcoded —
+   `state` restricted to the 50+DC via `US_STATES`, `zone_family` ordered
+   via `ZONE_ORDER`, numeric-coded fields like `floors_cat` sorted
+   numerically with "missing" last). Shows all 4 models side by side
+   (Baseline/GLM/RF/GBM), per the original "multiple models" ask — result
+   cards (reusing `kpi-card` styling) + `charts/predict_comparison.py`
+   (C7, same `MODEL_COLORS` as the performance page's C6 — moved that
+   constant into `model_data.py` as the true shared location once a second
+   chart needed it). Verified: baseline prediction matches
+   `baseline_zone_means.csv` exactly; a real finding surfaced during
+   testing — at the default (median/mode-of-every-column) starting values,
+   RF predicts noticeably higher ($142K) than GLM/Baseline/GBM (~$55-63K).
+   Confirmed this isn't a bug (real historical rows tested earlier had
+   RF/GBM tracking closely) — it's the log1p + Duan's-smearing
+   back-transform amplifying a synthetic, independently-median/mode'd
+   combination that may not resemble any real observed property.
+6. [ ] **Shared model-selection toggle**, in progress:
+   - New `dbc.Checklist` control (all 6 `MODEL_COLORS` keys, all checked by
+     default) in a new shell-level row in `app.py`, shown only on
+     `/model/performance` and `/model/lift`.
+   - `dcc.Store(id="model-selection-state")` in the app shell, written by
+     the checklist, read by both pages' chart callbacks.
+   - Nav reorder: `pages/model_lift.py` → `order=3`,
+     `pages/model_importance.py` → `order=4`.
+   - `charts/oot_scoreboard.py` / `pages/model_performance.py`: convert C6
+     from a static figure to a callback (`Input("model-selection-state",
+     "data")`), filtering `oot_scoreboard.csv` to the selected models
+     before the existing ascending-MAE ordering logic. Empty selection ->
+     explicit message, not an empty chart.
+7. [x] **Lorenz / double lift page** (`pages/model_lift.py`), reads the same
+   `model-selection-state`:
+   - `model_data.py` gained a uniform `get_predictions(model_name, df)` /
+     `get_oot_predictions(model_name)` (cached) covering all 6
+     `MODEL_COLORS` display names, not just the 3 fitted models: the 3
+     fitted models via `predict()`, `Baseline (zone mean)` via
+     `predict_baseline()`, `Baseline (global mean)` via
+     `BASELINE_GLOBAL_MEAN`, and `Baseline (global median)` — not exported
+     (`metadata.json` only gives the global *mean*), so computed ourselves
+     as `get_baseline_global_median()`: the median of `TARGET` on our own
+     training window (`yearOfLoss < OOT_CUTOFF_YEAR`), same spirit as the
+     exported mean constant, never leaking OOT rows into a "baseline."
+   - **Lorenz curve** (`charts/lorenz_curve.py`, C11): one curve per
+     selected model + a diagonal reference line. Convention: sort OOT rows
+     ascending by that model's predicted severity, plot cumulative % of
+     policies (x) vs. cumulative % of actual loss (y) — a standard
+     concentration-curve setup, chosen partly so the result could be
+     cross-checked against the teammate's already-computed Gini column in
+     `oot_scoreboard_insurance.csv` (Gini = 1 - 2×area under the curve)
+     before shipping. **Verified**: computed Gini on our own ~2,445-row
+     OOT sample preserved the exact same ranking as their full-data numbers
+     (GBM 0.325 vs. their 0.330 > RF 0.296 vs. 0.299 > GLM 0.206 vs. 0.229 >
+     zone-mean baseline 0.084 vs. 0.092 > global baselines ≈0, which their
+     file excludes "Baseline (global mean)" from for the same reason —
+     a constant prediction gives a degenerate, tie-broken-by-row-order
+     curve close to the diagonal).
+   - **Double lift chart** (`charts/double_lift.py`, C12): two dropdowns,
+     "Model A" / "Model B", options restricted to whatever's currently
+     toggled on in `model-selection-state` (so deselecting a model removes
+     it here too), defaulting to GBM vs. Baseline (zone mean) per user
+     request, falling back to the first two toggled-on models (fixed
+     `MODEL_COLORS` order) if the default pair isn't fully available.
+     Standard double-lift method: rank OOT rows by the ratio of the two
+     models' predictions, bucket into 10 deciles, plot average actual loss
+     alongside both models' average predictions per decile. Fewer than 2
+     models toggled on -> dropdowns disable, chart shows a message.
+   - **Verified via real Dash dispatch** (`app.server.test_client()`
+     posting to `/_dash-update-component`), not just calling the Python
+     functions directly, for all four new callbacks (toggle -> Lorenz
+     curve, toggle -> Gini table, toggle -> dropdown sync + disabled
+     state, dropdown pair -> double lift chart), plus edge cases (0
+     selected, 1 selected, default pair unavailable) — all degrade to
+     empty-state messages, not errors.
+   - **Post-build layout fixes from user review**: (1) two charts moved
+     from stacked to side-by-side (`dbc.Col(width=6)` each); page-level H4
+     title removed (each chart already titles itself). (2) Gini moved out
+     of the Lorenz legend (was `f"{model} (Gini {gini:.3f})"`) into a
+     separate small table below the chart — `compute_ginis()` factored out
+     of `build_lorenz_curve()` in `charts/lorenz_curve.py` so the chart and
+     table share the exact same computation and can't disagree, table
+     sorted descending by Gini (best first), each row prefixed with a
+     `MODEL_COLORS`-colored dot for the same model-identity consistency
+     used elsewhere. (3) The two charts didn't align vertically, since the
+     double lift chart's column has a dropdown row above it that the
+     Lorenz column doesn't — fixed with an invisible spacer
+     (`style={"visibility": "hidden"}`) mirroring that exact dropdown row's
+     markup above the Lorenz chart, rather than a hand-tuned pixel offset
+     that would drift out of sync if the dropdown row's styling ever
+     changes.
+   - `charts/oot_scoreboard.py`'s empty-state figure helper was promoted to
+     `charts/common.py::empty_state_figure()` once a third chart needed it
+     (Lorenz curve, double lift), rather than duplicating it a third time.
+8. [x] **Deferred eager Model-section computation from app-import time to
+   first-page-visit time**, ahead of switching `USE_SAMPLE=False` for a
+   full-data test run. Two pages built expensive charts directly inside a
+   static `layout = dbc.Container([...])` at module import (i.e. once,
+   unconditionally, at app startup, before anyone had opened that page):
+   - `pages/model_importance.py` — `build_permutation_importance_chart()`
+     (capped at 50K rows, but still ~1-2 min at full-data scale).
+   - `pages/model_lift.py` — `build_lorenz_curve(DEFAULT_MODELS)`, which
+     runs GBM/GLM/RF `.predict()` over the *entire* OOT set (~213,746 rows
+     at full scale vs. today's 2,445) to build the "all 6 models" starting
+     view.
+
+   Fix: converted both pages' `layout` from a static object to a zero-arg
+   function (`def layout(**_kwargs): return dbc.Container([...])`) — Dash's
+   pages system calls this fresh on every navigation to that page instead
+   of once at import, so the cost moves from "app startup, always" to
+   "first time this page is opened, once" (the underlying compute
+   functions already cache their own results at module level —
+   `compute_permutation_importance`'s `_cache`, `get_oot_predictions`'s
+   `_oot_predictions_cache` — so a second visit is instant regardless).
+   `pages/model_performance.py` wasn't touched: its only layout-time build
+   (`build_oot_scoreboard`) is a plain CSV read/filter, not a scalability
+   concern.
+
+   **Verified** (on sample data, before the full-data run even finished
+   downloading): app import time dropped from measuring build functions
+   inline (~11s, per Build Order step 4's note) to 2.47s. Directly called
+   the page registry's `layout()` for both pages — first call ~8.08s
+   (importance) / ~3.73s (lift), second call 0.11s / 0.01s, confirming the
+   cache actually holds across repeated visits, not just within one call.
+   Re-ran the existing `/_dash-update-component` dispatch tests for
+   `model-selection-state` -> `lorenz-curve.figure` and -> `oot-scoreboard.
+   figure` to confirm the callable-layout change didn't disturb the
+   existing callback wiring.
+9. [x] **`dashboard/config.json` + `dashboard/config.py`** — sample/full
+   data-mode toggle moved out of code entirely, per user request (wanted
+   to switch modes without editing files each time). Considered a CLI flag
+   first, ruled out since a future `gunicorn app:server` deployment
+   wouldn't forward custom argparse flags the way a plain `python app.py`
+   invocation would; considered an env var next (documented how to set one
+   in PowerShell/Git Bash), but the user preferred an actual config file —
+   landed on a plain `config.json` (`{"data_mode": "sample"}`) read via the
+   stdlib `json` module (no new dependency, unlike `.env` + `python-dotenv`
+   for what's currently a single setting) rather than a `.py` config
+   module (still "editing code" from the user's point of view, just
+   centralized to one file instead of two).
+   - `config.py` reads `config.json` once, defaults to `"sample"` if the
+     file or key is missing, and raises `ValueError` on anything other
+     than `"sample"`/`"full"` — fail fast on a typo'd value rather than
+     silently falling back.
+   - `dashboard/data.py` and `dashboard/model_data.py` both now derive
+     `_DATA_PATH` from `config.DATA_MODE` instead of each hardcoding their
+     own `USE_SAMPLE = True` literal — fixes the pre-existing duplication
+     (had to edit both files to switch modes) as a side effect, not just
+     the "no code edit" ask.
+   - Committed with the default `"sample"` checked in, so a fresh clone
+     behaves exactly as before; switching to full data is now "edit
+     `config.json`, restart the dev server" only.
+   - Verified: reading `config.py` directly, and both `data.py`/
+     `model_data.py`'s `_DATA_PATH` resolving to `claims_sample.parquet` by
+     default and `claims_full.parquet` when `data_mode` is set to `"full"`
+     (tested by temporarily writing `full` into `config.json` and back);
+     invalid value correctly raises; full `app.server.test_client()`
+     smoke test across all 6 pages still returns 200 after the migration.
+10. [x] **Made the lazy-load in step 8 actually visible** — user feedback
+    after using it: navigating to `/model/lift` gave no loading indicator
+    at all during the first-visit cost. Root cause: a callable `layout()`
+    still runs the expensive `build_*()` calls *synchronously, before the
+    page's HTML reaches the browser* — it moves the cost from "app
+    startup" to "first visit," but doesn't make it visible, since
+    `dcc.Loading`'s spinner only activates during an actual callback
+    round-trip, not while the initial per-page `layout()` call is still
+    being evaluated server-side.
+    - `pages/model_lift.py`: `layout()` now returns instantly —
+      `lorenz-curve`'s initial figure and `gini-table`'s initial content
+      are lightweight placeholders (`charts/common.py::empty_state_figure
+      ("Loading…")` and an empty `html.Div`) instead of the real
+      `build_lorenz_curve(DEFAULT_MODELS)`/`_build_gini_table
+      (DEFAULT_MODELS)` calls. No new callback needed — the existing
+      `model-selection-state` -> `lorenz-curve.figure`/`gini-table.
+      children` callbacks (Build Order step 6) already re-fire on every
+      navigation to this page, so the real content now arrives via an
+      actual callback, with `dcc.Loading`'s spinner (added around
+      `gini-table` too, `type="circle"`) visible for the whole wait.
+      `double-lift-chart` didn't need this — its initial
+      `build_double_lift_chart(None, None)` was already cheap (returns an
+      empty-state message with no model to score, since no pair is
+      selected until `sync_lift_dropdowns` fires).
+    - `pages/model_importance.py`: same placeholder treatment for all
+      three charts, but this page had no existing per-visit-triggered
+      callback (its 3 charts don't react to anything — GBM-only, no
+      model-selection toggle). Added `id`s (`shap-bar-chart`,
+      `shap-beeswarm-chart`, `permutation-importance-chart`) and three new
+      callbacks, each `Input("url", "pathname")` (the app shell's
+      `dcc.Location`, always mounted — same "shell-level Input drives a
+      page-specific Output" pattern already proven safe throughout this
+      app, e.g. `filter-state` -> Page 1's charts) -> one chart each, so
+      each panel loads (and shows its own spinner) independently rather
+      than blocking on the slowest one.
+    - **Verified**: `layout()` now returns in ~0.003-0.006s for both pages
+      (previously ~3.7s/~8s). Re-ran the real-dispatch tests via
+      `app.server.test_client()` posting to `/_dash-update-component` for
+      all 5 affected Outputs (`lorenz-curve.figure`, `gini-table.
+      children`, `shap-bar-chart.figure`, `shap-beeswarm-chart.figure`,
+      `permutation-importance-chart.figure`) — all return 200 with the
+      correct trace counts. Full 6-page smoke test still green.
 
 ## Status
 
@@ -360,7 +887,42 @@ placeholder/re-trained-by-us model, since the whole point is to serve
       `data.py`, `app.py`, `pages/overview.py`, all three `charts/*.py`
       modules, and every callback in Build Order steps 1–5 are done. Fixed
       the choropleth's colorbar scaling bug caught during manual testing
-      (see "Chart specs" → C1). Not yet done: a full in-browser click-through
-      of every interaction together (year, stat, state click, zone click,
-      C2 scale toggle, reset, in combination), and Build Order step 6
-      (rerun against `claims_full.parquet`). Page 2 blocked on Ben.
+      (see "Chart specs" → C1). Also fixed post-launch: year filter changed
+      from a single nullable year to an always-present `year_range` (range
+      slider), and active-filter chips added (with click-to-remove). Not
+      yet done: a full in-browser click-through of every interaction
+      together, and Build Order step 6 (rerun against `claims_full.parquet`).
+- [~] Page 2 (under-insurance) — built: multi-page architecture change done
+      (`shared_controls.py` extracted; `filter-state`/control row/nav/
+      kpi-row now live in `app.py`'s shell); `charts/status_bands.py`
+      (shared 3-band logic), `charts/coverage_histogram.py` (C4),
+      `charts/under_insurance_by_zone.py` (C5), and
+      `pages/under_insurance.py` all done. Verified against real data:
+      Page 1 KPIs/charts still work identically post-refactor; Page 2 KPIs
+      (88% median coverage ratio, 15,805 properties assessed, 41%/20%
+      under-insured/severely) and C4/C5 chart traces all check out.
+      In-browser click-through done: nav between pages, C5's stacked-bar
+      click-to-filter all confirmed working. Caught and fixed a real bug in
+      the process — `shared_controls.update_filter_state` originally
+      bundled `choropleth-map`/`zone-boxplots` (Page 1) and
+      `zone-status-bars` (Page 2) `clickData` into one callback, which
+      threw a runtime "nonexistent object" error the moment any one of them
+      fired (`suppress_callback_exceptions` only skips startup validation,
+      not this). Fixed by giving each page its own chart-click callback
+      instead — see `AGENTS.md` "Callbacks". Not yet done: Build Order
+      step 6 (rerun against `claims_full.parquet`).
+- [x] Model section data contract — **fully resolved.** A teammate exported
+      a complete artifact bundle to `exports/dashboard/`
+      (`model_{glm,gbm,rf}.joblib`, `oot_scoreboard.csv`,
+      `oot_scoreboard_insurance.csv`, `shap_mean_abs_by_feature.csv`,
+      `shap_sample_raw_features.parquet`, `shap_values_oot_sample.npz`,
+      `baseline_zone_means.csv`, `metadata.json`, `dashboard_support.py`).
+      Verified directly, not just inspected: all 3 models load (via
+      `dashboard_support.load_model()` — required for RF's custom
+      `SmearedLogTargetRegressor` class) and predict correctly on real
+      sample rows; `model_rf.joblib`'s SHA-256 matches `checksums.txt`
+      exactly; package versions match our `.venv` (sklearn/numpy/pandas/
+      shap identical, only Python patch version differs — no risk); all 14
+      `NUMERIC`+`CATEG` columns already exist in our own processed
+      parquet. All 4 sub-pages unblocked — see full mapping table above.
+      Not yet built — plan/build-order written, no page code yet.

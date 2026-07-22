@@ -19,21 +19,24 @@ if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
 from src.data.clean import US_STATES, ZONE_ORDER  # noqa: E402
+from config import DATA_MODE  # noqa: E402  (data_mode: "sample"/"full", see config.json)
 
-USE_SAMPLE = True  # matches the USE_SAMPLE convention used elsewhere in this repo
-_MODE = "sample" if USE_SAMPLE else "full"
-_DATA_PATH = REPO_ROOT / "data" / "processed" / f"claims_{_MODE}.parquet"
+_DATA_PATH = REPO_ROOT / "data" / "processed" / f"claims_{DATA_MODE}.parquet"
 
 TARGET = "amountPaidOnBuildingClaim"
 
-# Page 1 only needs these 5 of the processed file's 46 columns — column
-# pushdown at read time. Page 2 (model UI) will define its own column list.
+# Column pushdown at read time — widen this list when a page genuinely
+# needs another column (e.g. Page 2's under-insurance charts below), rather
+# than loading all 46. Page 3 (model UI) will need a much wider set and
+# should get its own load path rather than growing this one further.
 DASHBOARD_COLUMNS = [
     "state",
     "zone_family",
     "yearOfLoss",
     TARGET,
     f"{TARGET}_nominal",
+    "totalBuildingInsuranceCoverage",  # Page 2: coverage ratio
+    "buildingReplacementCost",  # Page 2: coverage ratio
 ]
 
 _df: pl.DataFrame | None = None
@@ -106,20 +109,23 @@ def apply_filters(
     df: pl.DataFrame,
     year_range: tuple[int, int] | list[int] | None = None,
     state: str | None = None,
-    zone_family: str | None = None,
+    zone_family: list[str] | None = None,
 ) -> pl.DataFrame:
     """Apply zero or more filters to the DataFrame in-memory.
 
     year_range: (lo, hi) inclusive on both ends (Polars' is_between default),
     e.g. (2000, 2000) for a single year. None means no year filter at all.
+
+    zone_family: multi-select (plain click toggles a zone in/out on Pages
+    1-2's charts) — a list of zone names to keep, or None/[] for no filter.
     """
     if year_range is not None:
         lo, hi = year_range
         df = df.filter(pl.col("yearOfLoss").is_between(lo, hi))
     if state is not None:
         df = df.filter(pl.col("state") == state)
-    if zone_family is not None:
-        df = df.filter(pl.col("zone_family") == zone_family)
+    if zone_family:
+        df = df.filter(pl.col("zone_family").is_in(zone_family))
     return df
 
 
