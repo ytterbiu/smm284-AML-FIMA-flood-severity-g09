@@ -1,5 +1,7 @@
 # MSc AS - Term 3: SMM284 Applied Machine Learning - Group Project
 
+![notebook CI](../../actions/workflows/notebook-ci.yml/badge.svg)
+
 Term 3 group project for Applied Machine Learning (60% of coursework grade - 60%
 of module).
 

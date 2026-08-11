@@ -1,0 +1,19 @@
+name: notebook-runs-top-to-bottom
+on:
+  push: { branches: [main] }
+  pull_request:
+jobs:
+  execute:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: { python-version: "3.13" }
+      - run: pip install -r requirements.txt jupyter nbconvert
+      - name: Execute notebook end-to-end (sample mode)
+        env: { USE_SAMPLE: "true" }
+        run: |
+          jupyter nbconvert --to notebook --execute \
+            --ExecutePreprocessor.timeout=1800 \
+            a_submission-files-v1/SMM284_Group09_EvansKhanLiSudarmo.ipynb --output /tmp/executed.ipynb
