@@ -9,7 +9,7 @@ of module).
 - [Submitted Notebook](https://github.com/ytterbiu/smm284-AML-FIMA-flood-severity-g09/blob/main/a_submission-files-v0/SMM284_Group09_EvansKhanLiSudarmo.ipynb)
 - [Final Notebook Updated After Submission](https://github.com/ytterbiu/smm284-AML-FIMA-flood-severity-g09/blob/main/a_submission-files-v1/SMM284_Group09_EvansKhanLiSudarmo.ipynb)
 
-_Note: Changes made to the Final Version compared to the submitted notebook, include an additional GitHub actions check to see if the notebook runs from top to bottom without error, and markdown QOL formatting tweaks for the GitHub `ipynb` viewer._
+_Note: Changes made to the Final Version compared to the submitted notebook include an additional GitHub actions check to see if the notebook runs from top to bottom without error, and markdown QOL formatting tweaks for the GitHub `ipynb` viewer._
 
 ## Dashboard
 
